@@ -1,0 +1,148 @@
+You are an expert frontend engineer and product manager building a production-quality single-page floorplan creation wizard (SPA). Your output must be precise, functional, and testable.
+
+GOAL
+- Implement a scalable, user-friendly top-down floorplan wizard that: draws plot boundaries, creates house placeholders, supports precise transforms and scaling, measures lengths in feet, and exports high-DPI PNG/PDF with physical 0.25 mm line-weight.
+
+CONSTRAINTS
+- World units = feet. UI shows feet with decimals.
+- Stroke weight stored in physical mm; default = 0.25 mm.
+- Canvas is centered on an A2 sheet inside the viewport.
+- Do not assume or mention any specific framework or library. Focus on components, responsibilities, APIs, events, and tests.
+- All shapes stored in world coordinates (feet).
+- Provide clear, commented code snippets or pseudocode where helpful, plus unit tests (logic tests) and integration test descriptions.
+
+DELIVERABLES (for each step produce code + tests + acceptance criteria)
+1. UI wireframe and component list (names + props + state contracts).
+2. Canvas rendering module with coordinate conversion APIs and panning/zooming.
+3. Wizard UI flow with step validation and microcopy.
+4. Tools: select, line, rectangle, polygon, freehand, pan, zoom, grid toggle, snap toggle.
+5. Transform handle implementation with exact event semantics (drag, modifiers, snapping).
+6. Live measurement labels on segments (feet, decimals) that update while editing.
+7. Export engine to produce PNG/PDF at configurable DPI (96, 150, 300, 600) with correct px scaling and 0.25 mm stroke in px.
+8. Data model (JSON schema) and read/write APIs.
+9. Unit tests and integration tests for geometry, conversions, and export fidelity.
+10. Performance notes and suggestions for handling large high-DPI exports (A2).
+
+OUTPUT FORMAT
+- For each deliverable return: a. short design summary b. code or pseudocode c. acceptance criteria d. 3 automated tests (input → expected output with numeric assertions when relevant).
+
+Start by emitting the UI wireframe and component list (deliverable 1).  
+You are designing the UI and components for the floorplan wizard SPA. Produce:
+
+1) A wireframe description (left sidebar, top steps bar, central A2 canvas, right properties pane).
+2) A component list with each component name, responsibility, inputs/outputs (props/events), and state contract.
+3) The top-level application state (JSON shape) and where it lives (global vs component).
+
+REQUIREMENTS (exact)
+- Steps bar: 4 steps (Plot size, House shape, Details, Export/Save).
+- Left pane: numeric width/height inputs (ft), buttons: Create, Use Custom Draw, Reset, Next.
+- Center: A2 canvas centered; toolbar with tools: Select, Line, Polygon, Rectangle, Freehand, Pan toggle, Zoom +/-, Grid toggle, Snap toggle, Undo, Redo, Export, Save.
+- Right pane: properties for selected object: stroke_mm, stroke_color, exact dimensions (ft), lockAspect toggle, layer, labelVisibility.
+
+ACCEPTANCE CRITERIA
+- Provide component names, for each: props, events emitted, state read/write, and minimal example of how a parent comp composes children (props + callbacks).
+- Provide the top-level app state JSON (example 2–3 sample objects).
+- Provide one accessibility requirement per major component (e.g., keyboard access, ARIA labels).
+
+Return exactly the component list + state + wireframe description.
+You are implementing the A2 canvas renderer. Provide:
+
+1) The coordinate conversion API (copy-paste ready pseudocode) — world(ft) ↔ screen(px) for editing view and world(ft) ↔ export(px) for high-DPI exports.
+2) Canvas initial view: A2 sheet centered. Define A2 physical size in feet and how to compute canvas pixel dimensions for a chosen editing DPI (default editing DPI = 96).
+3) Pan/zoom transform semantics and viewTransform shape.
+4) Grid & snap rules and default snap threshold (0.5 ft).
+5) Example numeric outputs: compute pixels_per_foot and 0.25mm stroke in px for DPIs: 96, 150, 300, 600 — show exact decimal numbers.
+
+USE THESE FORMULAS (canonical)
+- PLOT_SCALE = 3.1 (pixels_per_foot = DPI / 3.1)
+- Example numbers to include (exact):
+  - 96 DPI → pixels_per_foot = 96 / 3.1 = 30.96774193548387 px/ft
+  - 150 DPI → 48.387096774193544 px/ft
+  - 300 DPI → 96.77419354838709 px/ft
+  - 600 DPI → 193.54838709677418 px/ft
+- 0.25 mm → px:
+  - 96 DPI → (0.25 / 25.4) * 96 = 0.9448818897637795 px
+  - 150 DPI → 1.4763779527559056 px
+  - 300 DPI → 2.952755905511811 px
+  - 600 DPI → 5.905511811023622 px
+
+OUTPUT
+- Provide exact copy-paste pseudocode for:
+  - pixelsPerFoot(DPI)
+  - worldToCanvas(point_ft, viewTransform, editingDPI)
+  - canvasToWorld(point_px, viewTransform, editingDPI)
+  - worldToExport(point_ft, DPI, exportOrigin)
+  - exportToWorld(point_px, DPI, exportOrigin)
+
+- Provide a small test: given a rectangle from (0,0) to (50,90) ft, editing DPI=96, compute its pixel width/height and stroke px for 0.25 mm. Show numbers step-by-step.
+You are implementing the wizard flow (step-by-step). Return:
+
+1) Exact microcopy for step prompts, tooltips, and transient hints (use the texts the product requires).
+2) Exact validation rules before allowing Next:
+   - Plot exists and is valid polygon/rectangle with area > 10 sq ft.
+   - House shape exists in step 2 when proceeding to step 3.
+   - When doing Export step, at least one object must be visible on canvas.
+3) Animations and transitions (timing): creation fade-in 120ms + scale up 90ms.
+4) Shortcut microcopy hints per step (Space to toggle pan, Hold Shift to constrain aspect ratio, Hold Alt to symmetric scale).
+5) Provide sample UX flows (3 microflows): selecting preset 1 Kanal, drawing custom boundary, resizing house skeleton. For each flow supply the exact success message/hint to show to user.
+
+RETURN
+- JSON object of wizard steps with: id, title, prompt_text, allowed_actions, validation_fn (pseudocode).
+You are implementing the drawing tools. For each tool (Select, Line, Rectangle, Polygon, Freehand, Measure, Eraser, Pan) provide:
+
+1) A short description of behavior and default properties (stroke_mm, stroke_color, fill).
+2) Complete event lifecycle pseudocode for mouse/touch events (mousedown, mousemove, mouseup, key modifiers).
+3) Snap & grid interactions (snap threshold default 0.5 ft, grid toggles).
+4) Undo/Redo interaction model and model change log shape (what each command stores).
+5) Accessibility: keyboard controls to switch tools and operate transforms (e.g., arrow keys nudge selected shape 0.1 ft per tap; Shift for 1 ft).
+
+ACCEPTANCE CRITERIA
+- When user draws a rectangle using preset 1 Kanal, store it as rectangle polygon in world units and show handles.
+- Freehand mode creates a polyline; on "End Boundary" close polyline into polygon and normalize vertices (simplify to remove near-collinear points).
+- Provide pseudocode for freehand simplification (Ramer–Douglas–Peucker) with epsilon = 0.05 ft.
+This is critical — implement transform handles exactly as defined. Provide code/pseudocode, event semantics, modifier keys, and visual feedback.
+
+HANDLES (all shapes)
+- 4 corner handles: NW, NE, SE, SW
+- 4 midpoint handles: N, E, S, W
+- center handle: drag to translate
+- rotation handle: optional, top-center outside shape
+
+RULES & EVENT SEMANTICS
+A) Midpoint handle (unidirectional scaling)
+- Mouse down on midpoint → set transformMode='scale-axis'; anchor = opposite midpoint in world coords.
+- On mousemove → compute dragged handle new world coordinate; compute axis-aligned change; set width OR height only; adjacent vertices on that edge move to the new coordinate so edges remain straight.
+- On mouseup → commit geometry to model and push undo step.
+
+B) Corner handle (corner shear)
+- Mouse down → transformMode='corner-drag'; anchor = opposite corner fixed.
+- On mousemove → move dragged corner to new world coord; opposite corner fixed; recompute adjacent edges so polygon may shear (one adjacent edge can change angle).
+- If Shift held → constrain aspect ratio (uniform scale about anchor).
+- If Alt held → symmetric about center (both corners move mirrored).
+
+C) Center translate
+- Mouse down on center/body → transformMode='translate'; store initial vertices; on mousemove apply delta (canvas->world).
+- Snap: if within 0.5 ft to other vertex or boundary with snap ON, snap and show green pulsing indicator.
+
+D) Rotation (if enabled)
+- Rotation handle drags compute rotation about center; vertices rotated using standard 2D rotation matrix; update labels.
+
+MODIFIERS
+- Shift: keep aspect ratio on corner drags.
+- Alt: symmetric scaling on midpoint drags.
+- Ctrl/Cmd: bypass snapping.
+- Snap: when snap ON, search nearest snap targets (vertices, grid lines, bounding box edges) within threshold 0.5 ft.
+
+VISUAL FEEDBACK
+- Hover: enlarge handle by 1.2x; change cursor to indicate axis or rotation.
+- During transform: show ghost of original shape (50% opacity), live labels on edges reflecting updated lengths, and guide lines to anchor(s).
+
+DETAILED PSEUDOCODE TASK
+- Implement `onHandleMouseDown(handleType, pointerCanvas)` → returns transformSession with anchor, initialVertices, mode.
+- Implement `onHandleMouseMove(transformSession, pointerCanvas)` → returns updated vertices in world ft without commit.
+- Implement `onHandleMouseUp(transformSession)` → commit to model and push undo record.
+
+TESTS (provide 3)
+1) Drag right midpoint of rectangle 50×90 ft to increase width to 52 ft — assert new vertices equal (0,0),(52,0),(52,90),(0,90) in feet (show numeric delta).
+2) Shift + drag NE corner of a 10×10 ft square anchored SW → assert both axes scaled equally.
+3) Alt + drag E midpoint of 20×30 ft rectangle inward by 2 ft → assert both east & west edges moved symmetrically.
