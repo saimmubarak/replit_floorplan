@@ -455,7 +455,7 @@ export default function Floorplan() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel */}
-        <div className="w-64 border-r bg-background overflow-y-auto">
+        <div className="w-80 border-r bg-background overflow-y-auto flex-shrink-0">
           {currentStep === 'plot-size' && (
             <PlotSizePanel
               onCreatePreset={handleCreatePreset}
@@ -518,7 +518,7 @@ export default function Floorplan() {
         </div>
 
         {/* Right Panel */}
-        <div className="w-80 border-l bg-background overflow-y-auto">
+        <div className="w-72 border-l bg-background overflow-y-auto flex-shrink-0">
           <PropertiesPanel
             selectedShape={selectedShape}
             onUpdateShape={handleUpdateShape}

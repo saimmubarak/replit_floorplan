@@ -50,6 +50,15 @@ export function FloorplanCanvas({
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [hoveredHandle, setHoveredHandle] = useState<{ shapeId: string; handle: HandleType } | null>(null);
   const [snapPoint, setSnapPoint] = useState<Point | null>(null);
+  const [dragState, setDragState] = useState<{
+    shapeId: string;
+    handle: HandleType;
+    startPoint: Point;
+    originalVertices: Point[];
+    shiftKey: boolean;
+    altKey: boolean;
+  } | null>(null);
+  const [liveMeasurement, setLiveMeasurement] = useState<{ label: string; position: Point } | null>(null);
 
   // Update canvas size on resize
   useEffect(() => {
@@ -122,7 +131,26 @@ export function FloorplanCanvas({
         drawHandles(ctx, shape, viewTransform, hoveredHandle);
       }
     }
-  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize]);
+
+    // Draw live measurement during dragging
+    if (liveMeasurement) {
+      const canvasPos = worldToCanvas(liveMeasurement.position, viewTransform, DEFAULT_EDITING_DPI);
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      const metrics = ctx.measureText(liveMeasurement.label);
+      const padding = 6;
+      const bgWidth = metrics.width + padding * 2;
+      const bgHeight = 20;
+      
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+      ctx.fillRect(canvasPos.x - bgWidth / 2, canvasPos.y - bgHeight / 2, bgWidth, bgHeight);
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(liveMeasurement.label, canvasPos.x, canvasPos.y);
+    }
+  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -133,6 +161,26 @@ export function FloorplanCanvas({
     const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI);
 
     if (activeTool === 'select') {
+      // Check if clicking on a handle of the selected shape
+      if (selectedShapeId) {
+        const shape = shapes.find(s => s.id === selectedShapeId);
+        if (shape) {
+          const handle = findHandleAtPoint(shape, canvasPoint, viewTransform);
+          if (handle) {
+            // Start handle drag
+            setDragState({
+              shapeId: shape.id,
+              handle,
+              startPoint: worldPoint,
+              originalVertices: [...shape.vertices],
+              shiftKey: e.shiftKey,
+              altKey: e.altKey,
+            });
+            return;
+          }
+        }
+      }
+      
       // Check if clicking on a shape
       const clickedShape = findShapeAtPoint(shapes, worldPoint);
       onSelectShape(clickedShape?.id || null);
@@ -142,7 +190,7 @@ export function FloorplanCanvas({
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
       setCurrentPoints([point]);
     }
-  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape]);
+  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -151,6 +199,50 @@ export function FloorplanCanvas({
     const rect = canvas.getBoundingClientRect();
     const canvasPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI);
+
+    // Handle dragging transform handles
+    if (dragState) {
+      const shape = shapes.find(s => s.id === dragState.shapeId);
+      if (shape) {
+        const newVertices = transformVertices(
+          dragState.originalVertices,
+          dragState.handle,
+          dragState.startPoint,
+          worldPoint,
+          e.shiftKey,
+          e.altKey
+        );
+        
+        // Update shape vertices
+        const updatedShapes = shapes.map(s =>
+          s.id === dragState.shapeId ? { ...s, vertices: newVertices } : s
+        );
+        onShapesChange(updatedShapes);
+        
+        // Calculate and show live measurement
+        const measurement = calculateShapeMeasurement(newVertices);
+        if (measurement) {
+          setLiveMeasurement({
+            label: measurement.label,
+            position: measurement.position,
+          });
+        }
+      }
+      return;
+    }
+
+    // Update hovered handle
+    if (selectedShapeId && activeTool === 'select') {
+      const shape = shapes.find(s => s.id === selectedShapeId);
+      if (shape) {
+        const handle = findHandleAtPoint(shape, canvasPoint, viewTransform);
+        if (handle) {
+          setHoveredHandle({ shapeId: shape.id, handle });
+        } else {
+          setHoveredHandle(null);
+        }
+      }
+    }
 
     if (isDrawing) {
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
@@ -168,9 +260,16 @@ export function FloorplanCanvas({
         setSnapPoint(snap);
       }
     }
-  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes]);
+  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes, dragState, selectedShapeId, onShapesChange]);
 
   const handleMouseUp = useCallback(() => {
+    // Clear drag state
+    if (dragState) {
+      setDragState(null);
+      setLiveMeasurement(null);
+      return;
+    }
+
     if (isDrawing && currentPoints.length >= 2) {
       // Determine stroke color and layer based on context
       const isPlotBoundary = shapes.length === 0;
@@ -197,7 +296,7 @@ export function FloorplanCanvas({
     setIsDrawing(false);
     setCurrentPoints([]);
     setSnapPoint(null);
-  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape]);
+  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState]);
 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-background">
@@ -489,4 +588,195 @@ function drawMeasurements(
     
     ctx.restore();
   }
+}
+
+function findHandleAtPoint(
+  shape: FloorplanShape,
+  canvasPoint: Point,
+  viewTransform: ViewTransform
+): HandleType | null {
+  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI));
+  
+  if (canvasVertices.length === 0) return null;
+
+  const xs = canvasVertices.map(v => v.x);
+  const ys = canvasVertices.map(v => v.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const handles: { pos: Point; type: HandleType }[] = [
+    { pos: { x: minX, y: minY }, type: 'nw' },
+    { pos: { x: (minX + maxX) / 2, y: minY }, type: 'n' },
+    { pos: { x: maxX, y: minY }, type: 'ne' },
+    { pos: { x: maxX, y: (minY + maxY) / 2 }, type: 'e' },
+    { pos: { x: maxX, y: maxY }, type: 'se' },
+    { pos: { x: (minX + maxX) / 2, y: maxY }, type: 's' },
+    { pos: { x: minX, y: maxY }, type: 'sw' },
+    { pos: { x: minX, y: (minY + maxY) / 2 }, type: 'w' },
+    { pos: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, type: 'center' },
+  ];
+
+  const hitRadius = 8; // pixels
+  for (const handle of handles) {
+    const dx = canvasPoint.x - handle.pos.x;
+    const dy = canvasPoint.y - handle.pos.y;
+    if (Math.sqrt(dx * dx + dy * dy) <= hitRadius) {
+      return handle.type;
+    }
+  }
+
+  return null;
+}
+
+function transformVertices(
+  originalVertices: Point[],
+  handle: HandleType,
+  startPoint: Point,
+  currentPoint: Point,
+  shiftKey: boolean,
+  altKey: boolean
+): Point[] {
+  if (originalVertices.length === 0) return originalVertices;
+
+  const xs = originalVertices.map(v => v.x);
+  const ys = originalVertices.map(v => v.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  const delta = { x: currentPoint.x - startPoint.x, y: currentPoint.y - startPoint.y };
+
+  // Center handle: translate all vertices
+  if (handle === 'center') {
+    return originalVertices.map(v => ({
+      x: v.x + delta.x,
+      y: v.y + delta.y,
+    }));
+  }
+
+  // Midpoint handles: unidirectional scaling
+  if (handle === 'n' || handle === 's') {
+    const isNorth = handle === 'n';
+    const anchorY = isNorth ? maxY : minY;
+    const newEdgeY = isNorth ? minY + delta.y : maxY + delta.y;
+    const scaleY = (newEdgeY - anchorY) / (isNorth ? (minY - anchorY) : (maxY - anchorY));
+    
+    if (altKey) {
+      // Symmetric scaling about center
+      const newHeight = Math.abs(newEdgeY - centerY) * 2;
+      const scaleY = newHeight / height;
+      return originalVertices.map(v => ({
+        x: v.x,
+        y: centerY + (v.y - centerY) * scaleY,
+      }));
+    } else {
+      return originalVertices.map(v => ({
+        x: v.x,
+        y: anchorY + (v.y - anchorY) * scaleY,
+      }));
+    }
+  }
+
+  if (handle === 'e' || handle === 'w') {
+    const isEast = handle === 'e';
+    const anchorX = isEast ? minX : maxX;
+    const newEdgeX = isEast ? maxX + delta.x : minX + delta.x;
+    const scaleX = (newEdgeX - anchorX) / (isEast ? (maxX - anchorX) : (minX - anchorX));
+    
+    if (altKey) {
+      // Symmetric scaling about center
+      const newWidth = Math.abs(newEdgeX - centerX) * 2;
+      const scaleX = newWidth / width;
+      return originalVertices.map(v => ({
+        x: centerX + (v.x - centerX) * scaleX,
+        y: v.y,
+      }));
+    } else {
+      return originalVertices.map(v => ({
+        x: anchorX + (v.x - anchorX) * scaleX,
+        y: v.y,
+      }));
+    }
+  }
+
+  // Corner handles: shear transformation
+  // For rectangles, move the corner and adjacent edges
+  if (['nw', 'ne', 'se', 'sw'].includes(handle)) {
+    // Determine which corner we're dragging
+    const newVertices = [...originalVertices];
+    
+    if (originalVertices.length === 4) {
+      // Rectangle-specific logic
+      const cornerIndex = 
+        handle === 'nw' ? 0 :
+        handle === 'ne' ? 1 :
+        handle === 'se' ? 2 : 3;
+      
+      const oppositeIndex = (cornerIndex + 2) % 4;
+      const prev = (cornerIndex + 3) % 4;
+      const next = (cornerIndex + 1) % 4;
+      
+      if (shiftKey) {
+        // Constrain aspect ratio
+        const opposite = originalVertices[oppositeIndex];
+        const dx = currentPoint.x - opposite.x;
+        const dy = currentPoint.y - opposite.y;
+        const ratio = width / height;
+        
+        const newWidth = Math.abs(dx);
+        const newHeight = newWidth / ratio;
+        
+        newVertices[cornerIndex] = {
+          x: opposite.x + Math.sign(dx) * newWidth,
+          y: opposite.y + Math.sign(dy) * newHeight,
+        };
+        newVertices[prev] = {
+          x: handle.includes('w') ? newVertices[cornerIndex].x : opposite.x,
+          y: handle.includes('n') ? newVertices[cornerIndex].y : opposite.y,
+        };
+        newVertices[next] = {
+          x: handle.includes('e') ? newVertices[cornerIndex].x : opposite.x,
+          y: handle.includes('s') ? newVertices[cornerIndex].y : opposite.y,
+        };
+      } else {
+        // Free shear
+        newVertices[cornerIndex] = { ...currentPoint };
+        newVertices[prev] = {
+          x: handle.includes('w') ? currentPoint.x : originalVertices[prev].x,
+          y: handle.includes('n') ? currentPoint.y : originalVertices[prev].y,
+        };
+        newVertices[next] = {
+          x: handle.includes('e') ? currentPoint.x : originalVertices[next].x,
+          y: handle.includes('s') ? currentPoint.y : originalVertices[next].y,
+        };
+      }
+    }
+    
+    return newVertices;
+  }
+
+  return originalVertices;
+}
+
+function calculateShapeMeasurement(vertices: Point[]): { label: string; position: Point } | null {
+  if (vertices.length < 2) return null;
+
+  const xs = vertices.map(v => v.x);
+  const ys = vertices.map(v => v.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const centerX = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const centerY = (Math.max(...ys) + Math.min(...ys)) / 2;
+
+  return {
+    label: `${width.toFixed(2)} × ${height.toFixed(2)} ft`,
+    position: { x: centerX, y: centerY },
+  };
 }
