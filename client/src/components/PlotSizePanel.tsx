@@ -18,11 +18,13 @@ export function PlotSizePanel({ onCreatePreset, onStartCustomDraw, onReset, hasP
   const [customWidth, setCustomWidth] = useState<string>("50");
   const [customHeight, setCustomHeight] = useState<string>("50");
 
-  const handlePresetSelect = (key: string) => {
+  const handlePresetClick = (key: string) => {
     setSelectedPreset(key);
     const preset = PRESET_PLOTS[key as keyof typeof PRESET_PLOTS];
     setCustomWidth(preset.width.toString());
     setCustomHeight(preset.height.toString());
+    // Create the plot with the preset dimensions directly
+    onCreatePreset(preset.width, preset.height);
   };
 
   const handleCreate = () => {
@@ -37,27 +39,36 @@ export function PlotSizePanel({ onCreatePreset, onStartCustomDraw, onReset, hasP
   return (
     <div className="flex flex-col gap-6 p-4" data-testid="plot-size-panel">
       <div>
-        <h3 className="text-base font-semibold mb-4">Select Plot Size</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Guide us on how big your house is. Choose a plot or draw custom.
+        </p>
+        <h3 className="text-base font-semibold mb-3">Select Plot Size</h3>
         <div className="grid grid-cols-2 gap-3">
           {Object.entries(PRESET_PLOTS).map(([key, preset]) => (
-            <Card
+            <Button
               key={key}
-              onClick={() => handlePresetSelect(key)}
-              className={`
-                p-4 cursor-pointer transition-all hover-elevate
-                ${selectedPreset === key ? 'ring-2 ring-primary border-primary' : 'border-2'}
-              `}
+              variant={selectedPreset === key ? "default" : "outline"}
+              onClick={() => handlePresetClick(key)}
+              className="h-auto py-4 flex-col gap-1"
               data-testid={`preset-${key}`}
             >
-              <div className="flex flex-col items-center gap-2">
-                <Ruler className="w-6 h-6 text-primary" />
-                <div className="text-sm font-medium text-center">{preset.name}</div>
-                <div className="text-xs font-mono text-muted-foreground">
-                  {preset.width} × {preset.height} ft
-                </div>
+              <Ruler className="w-5 h-5" />
+              <div className="text-sm font-medium">{preset.name}</div>
+              <div className="text-xs font-mono opacity-80">
+                {preset.width} × {preset.height} ft
               </div>
-            </Card>
+            </Button>
           ))}
+          <Button
+            variant="outline"
+            onClick={onStartCustomDraw}
+            className="h-auto py-4 flex-col gap-1"
+            data-testid="preset-custom"
+          >
+            <Edit3 className="w-5 h-5" />
+            <div className="text-sm font-medium">Custom</div>
+            <div className="text-xs opacity-80">Draw</div>
+          </Button>
         </div>
       </div>
 

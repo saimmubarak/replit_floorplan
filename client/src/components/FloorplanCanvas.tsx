@@ -73,9 +73,9 @@ export function FloorplanCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'hsl(var(--canvas-sheet))';
+    // Clear canvas with background color
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
+    ctx.fillStyle = `hsl(${bgColor})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Calculate A2 sheet dimensions in pixels
@@ -87,9 +87,9 @@ export function FloorplanCanvas({
     const sheetX = (canvas.width - sheetWidth) / 2;
     const sheetY = (canvas.height - sheetHeight) / 2;
 
-    // Draw A2 sheet background
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--canvas-sheet').trim();
-    ctx.fillStyle = `hsl(${ctx.fillStyle})`;
+    // Draw A2 sheet background (white canvas)
+    const sheetColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-sheet').trim();
+    ctx.fillStyle = `hsl(${sheetColor})`;
     ctx.fillRect(sheetX, sheetY, sheetWidth, sheetHeight);
 
     // Draw grid if enabled
@@ -172,25 +172,32 @@ export function FloorplanCanvas({
 
   const handleMouseUp = useCallback(() => {
     if (isDrawing && currentPoints.length >= 2) {
+      // Determine stroke color and layer based on context
+      const isPlotBoundary = shapes.length === 0;
+      const hasPlot = shapes.some(s => s.layer === 'plot');
+      const isHouseLayer = hasPlot && !isPlotBoundary && activeTool === 'polygon';
+      
       // Create new shape based on tool
       const newShape: FloorplanShape = {
         id: crypto.randomUUID(),
-        type: activeTool === 'rectangle' ? 'rectangle' : activeTool === 'freehand' ? 'freehand' : 'line',
+        type: activeTool === 'rectangle' ? 'rectangle' : activeTool === 'freehand' ? 'freehand' : activeTool === 'polygon' ? 'polygon' : 'line',
         vertices: activeTool === 'rectangle' ? createRectangleVertices(currentPoints) : currentPoints,
         strokeMm: 0.25,
-        strokeColor: '#000000',
-        layer: 'default',
+        strokeColor: isPlotBoundary ? '#1e3a8a' : isHouseLayer ? '#9a3412' : '#000000', // Dark blue for plot, brick red for house
+        layer: isPlotBoundary ? 'plot' : isHouseLayer ? 'house' : 'default',
         labelVisibility: true,
         lockAspect: false,
+        name: isPlotBoundary ? 'Plot Boundary' : isHouseLayer ? 'House' : undefined,
       };
 
       onShapesChange([...shapes, newShape]);
+      onSelectShape(newShape.id);
     }
     
     setIsDrawing(false);
     setCurrentPoints([]);
     setSnapPoint(null);
-  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange]);
+  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape]);
 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-background">
@@ -209,6 +216,13 @@ export function FloorplanCanvas({
       <div className="absolute top-4 right-4 px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border text-sm font-mono">
         {(viewTransform.zoom * 100).toFixed(0)}%
       </div>
+      
+      {/* Tooltip for selected shapes */}
+      {selectedShapeId && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-primary/90 backdrop-blur-sm rounded-md text-sm text-primary-foreground shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
+          Drag handles to resize
+        </div>
+      )}
     </div>
   );
 }
@@ -222,7 +236,8 @@ function drawGrid(
   sheetWidth: number,
   sheetHeight: number
 ) {
-  ctx.strokeStyle = 'hsl(var(--canvas-grid))';
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-grid').trim();
+  ctx.strokeStyle = `hsl(${gridColor})`;
   ctx.lineWidth = 1;
   
   const ppf = pixelsPerFoot(DEFAULT_EDITING_DPI) * viewTransform.zoom;
@@ -276,7 +291,8 @@ function drawShape(
   ctx.stroke();
 
   if (isSelected) {
-    ctx.strokeStyle = 'hsl(var(--primary))';
+    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+    ctx.strokeStyle = `hsl(${primaryColor})`;
     ctx.lineWidth = 3;
     ctx.setLineDash([5, 5]);
     ctx.stroke();
@@ -294,7 +310,8 @@ function drawTemporaryShape(
 
   const canvasPoints = points.map(p => worldToCanvas(p, viewTransform, DEFAULT_EDITING_DPI));
 
-  ctx.strokeStyle = 'hsl(var(--primary))';
+  const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+  ctx.strokeStyle = `hsl(${primaryColor})`;
   ctx.lineWidth = 2;
   ctx.setLineDash([5, 5]);
   ctx.beginPath();
@@ -317,12 +334,13 @@ function drawTemporaryShape(
 function drawSnapIndicator(ctx: CanvasRenderingContext2D, point: Point, viewTransform: ViewTransform) {
   const canvasPoint = worldToCanvas(point, viewTransform, DEFAULT_EDITING_DPI);
   
-  ctx.fillStyle = 'hsl(var(--canvas-snap))';
+  const snapColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-snap').trim();
+  ctx.fillStyle = `hsl(${snapColor})`;
   ctx.beginPath();
   ctx.arc(canvasPoint.x, canvasPoint.y, 4, 0, Math.PI * 2);
   ctx.fill();
   
-  ctx.strokeStyle = 'hsl(var(--canvas-snap))';
+  ctx.strokeStyle = `hsl(${snapColor})`;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(canvasPoint.x, canvasPoint.y, 8, 0, Math.PI * 2);
@@ -358,11 +376,14 @@ function drawHandles(
     { pos: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, type: 'center' },
   ];
 
+  const handleColor = getComputedStyle(document.documentElement).getPropertyValue('--handle').trim();
+  const handleHoverColor = getComputedStyle(document.documentElement).getPropertyValue('--handle-hover').trim();
+  
   handles.forEach(handle => {
     const isHovered = hoveredHandle?.handle === handle.type && hoveredHandle?.shapeId === shape.id;
     const size = isHovered ? 4 : 3;
     
-    ctx.fillStyle = isHovered ? 'hsl(var(--handle-hover))' : 'hsl(var(--handle))';
+    ctx.fillStyle = isHovered ? `hsl(${handleHoverColor})` : `hsl(${handleColor})`;
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
 

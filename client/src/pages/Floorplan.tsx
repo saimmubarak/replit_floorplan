@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { WizardSteps } from "@/components/WizardSteps";
 import { PlotSizePanel } from "@/components/PlotSizePanel";
+import { HouseShapePanel } from "@/components/HouseShapePanel";
 import { FloorplanCanvas } from "@/components/FloorplanCanvas";
 import { PropertiesPanel } from "@/components/PropertiesPanel";
 import { Toolbar } from "@/components/Toolbar";
@@ -14,6 +15,8 @@ import {
   type ViewTransform,
   type ToolType,
   type ExportOptions,
+  A2_WIDTH_FT,
+  A2_HEIGHT_FT,
 } from "@shared/schema";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -117,17 +120,23 @@ export default function Floorplan() {
 
   // Plot Creation
   const handleCreatePreset = useCallback((width: number, height: number) => {
+    // Center the plot on the A2 canvas
+    const centerX = A2_WIDTH_FT / 2;
+    const centerY = A2_HEIGHT_FT / 2;
+    const startX = centerX - (width / 2);
+    const startY = centerY - (height / 2);
+    
     const newShape: FloorplanShape = {
       id: crypto.randomUUID(),
       type: 'rectangle',
       vertices: [
-        { x: 0, y: 0 },
-        { x: width, y: 0 },
-        { x: width, y: height },
-        { x: 0, y: height },
+        { x: startX, y: startY },
+        { x: startX + width, y: startY },
+        { x: startX + width, y: startY + height },
+        { x: startX, y: startY + height },
       ],
       strokeMm: 0.25,
-      strokeColor: '#000000',
+      strokeColor: '#1e3a8a', // Dark blue
       layer: 'plot',
       labelVisibility: true,
       lockAspect: false,
@@ -135,6 +144,7 @@ export default function Floorplan() {
     };
 
     setShapes([newShape]);
+    setSelectedShapeId(newShape.id);
     toast({
       title: "Plot Created",
       description: `Created ${width} × ${height} ft plot boundary`,
@@ -142,10 +152,10 @@ export default function Floorplan() {
   }, [toast]);
 
   const handleStartCustomDraw = useCallback(() => {
-    setActiveTool('polygon');
+    setActiveTool('freehand');
     toast({
       title: "Custom Draw Mode",
-      description: "Click on the canvas to draw your custom boundary",
+      description: "Draw your custom boundary. Click 'Esc' or right-click when done.",
     });
   }, [toast]);
 
@@ -155,6 +165,101 @@ export default function Floorplan() {
     toast({
       title: "Plot Reset",
       description: "All shapes have been removed",
+    });
+  }, [toast]);
+
+  // House Shape Creation
+  const handleCreateHouseShape = useCallback((shapeType: 'rectangular' | 'l-shaped' | 'mirror-l' | 'u-shaped') => {
+    // Find the plot boundary to center the house inside it
+    const plotShape = shapes.find(s => s.layer === 'plot');
+    if (!plotShape) {
+      toast({
+        title: "No Plot Found",
+        description: "Please create a plot boundary first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Calculate plot center
+    const plotXs = plotShape.vertices.map(v => v.x);
+    const plotYs = plotShape.vertices.map(v => v.y);
+    const plotCenterX = (Math.min(...plotXs) + Math.max(...plotXs)) / 2;
+    const plotCenterY = (Math.min(...plotYs) + Math.max(...plotYs)) / 2;
+
+    // Default house size ~10 ft
+    const size = 10;
+    let vertices: { x: number; y: number }[] = [];
+
+    // Generate vertices based on shape type
+    switch (shapeType) {
+      case 'rectangular':
+        vertices = [
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+        ];
+        break;
+      case 'l-shaped':
+        vertices = [
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY },
+          { x: plotCenterX, y: plotCenterY },
+          { x: plotCenterX, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+        ];
+        break;
+      case 'mirror-l':
+        vertices = [
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX, y: plotCenterY + size / 2 },
+          { x: plotCenterX, y: plotCenterY },
+          { x: plotCenterX - size / 2, y: plotCenterY },
+        ];
+        break;
+      case 'u-shaped':
+        vertices = [
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY + size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY + size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+        ];
+        break;
+    }
+
+    const newShape: FloorplanShape = {
+      id: crypto.randomUUID(),
+      type: 'polygon',
+      vertices,
+      strokeMm: 0.25,
+      strokeColor: '#9a3412', // Brick red
+      layer: 'house',
+      labelVisibility: true,
+      lockAspect: false,
+      name: `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} House`,
+    };
+
+    setShapes([...shapes, newShape]);
+    setSelectedShapeId(newShape.id);
+    toast({
+      title: "House Shape Created",
+      description: `Added ${shapeType} house outline`,
+    });
+  }, [shapes, toast]);
+
+  const handleStartHouseCustomDraw = useCallback(() => {
+    setActiveTool('polygon');
+    toast({
+      title: "Custom House Draw Mode",
+      description: "Click to draw house outline. Right-click or Esc when done.",
     });
   }, [toast]);
 
@@ -306,11 +411,11 @@ export default function Floorplan() {
   const getStepPrompt = (): string => {
     switch (currentStep) {
       case 'plot-size':
-        return 'Define your plot boundary by selecting a preset size or drawing a custom shape';
+        return 'Guide us on how big your house is. Choose a plot or draw custom.';
       case 'house-shape':
-        return 'Draw the house layout within your plot boundary';
+        return 'Tell us about house shape.';
       case 'details':
-        return 'Add walls, rooms, and other architectural details';
+        return 'Add walls, paths, and other details to your floorplan';
       case 'export-save':
         return 'Export your floorplan or save your progress';
     }
@@ -360,12 +465,10 @@ export default function Floorplan() {
             />
           )}
           {currentStep === 'house-shape' && (
-            <div className="p-4">
-              <h3 className="text-base font-semibold mb-4">House Shape Tools</h3>
-              <p className="text-sm text-muted-foreground">
-                Use the drawing tools below to create the house outline
-              </p>
-            </div>
+            <HouseShapePanel
+              onCreateHouseShape={handleCreateHouseShape}
+              onStartCustomDraw={handleStartHouseCustomDraw}
+            />
           )}
           {currentStep === 'details' && (
             <div className="p-4">

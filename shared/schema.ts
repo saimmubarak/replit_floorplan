@@ -167,10 +167,9 @@ export const MM_TO_INCHES = 1 / 25.4;
 export const A2_WIDTH_FT = 23.39 / 12;
 export const A2_HEIGHT_FT = 16.54 / 12;
 
-// Preset plot sizes (1 Kanal = 5445 sq ft, typically 90ft x 60.5ft)
+// Preset plot sizes
 export const PRESET_PLOTS = {
-  '1-kanal': { width: 90, height: 60.5, name: '1 Kanal' },
-  '2-kanal': { width: 127.3, height: 85.5, name: '2 Kanal' },
-  '10-marla': { width: 75, height: 50.4, name: '10 Marla' },
-  'custom': { width: 50, height: 50, name: 'Custom' },
+  '1-kanal': { width: 50, height: 90, name: '1 Kanal' },
+  '10-marla': { width: 35, height: 65, name: '10 Marla' },
+  '5-marla': { width: 25, height: 45, name: '5 Marla' },
 };
