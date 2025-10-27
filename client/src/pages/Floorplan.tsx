@@ -505,6 +505,7 @@ export default function Floorplan() {
               activeTool={activeTool}
               gridEnabled={gridEnabled}
               snapEnabled={snapEnabled}
+              currentStep={currentStep}
               onShapesChange={setShapes}
               onViewTransformChange={setViewTransform}
               onSelectShape={setSelectedShapeId}

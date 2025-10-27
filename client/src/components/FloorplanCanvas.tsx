@@ -5,11 +5,13 @@ import {
   type Point,
   type ToolType,
   type HandleType,
+  type WizardStep,
   DEFAULT_EDITING_DPI,
   A2_WIDTH_FT,
   A2_HEIGHT_FT,
   GRID_SPACING_FT,
   SNAP_THRESHOLD_FT,
+  STEP_COLORS,
 } from "@shared/schema";
 import {
   worldToCanvas,
@@ -27,6 +29,7 @@ interface FloorplanCanvasProps {
   activeTool: ToolType;
   gridEnabled: boolean;
   snapEnabled: boolean;
+  currentStep: WizardStep;
   onShapesChange: (shapes: FloorplanShape[]) => void;
   onViewTransformChange: (transform: ViewTransform) => void;
   onSelectShape: (id: string | null) => void;
@@ -39,6 +42,7 @@ export function FloorplanCanvas({
   activeTool,
   gridEnabled,
   snapEnabled,
+  currentStep,
   onShapesChange,
   onViewTransformChange,
   onSelectShape,
@@ -59,6 +63,10 @@ export function FloorplanCanvas({
     altKey: boolean;
   } | null>(null);
   const [liveMeasurement, setLiveMeasurement] = useState<{ label: string; position: Point } | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<Point | null>(null);
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [mousePosition, setMousePosition] = useState<Point | null>(null);
 
   // Update canvas size on resize
   useEffect(() => {
@@ -87,14 +95,14 @@ export function FloorplanCanvas({
     ctx.fillStyle = `hsl(${bgColor})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Calculate A2 sheet dimensions in pixels
-    const ppf = pixelsPerFoot(DEFAULT_EDITING_DPI);
-    const sheetWidth = A2_WIDTH_FT * ppf * viewTransform.zoom;
-    const sheetHeight = A2_HEIGHT_FT * ppf * viewTransform.zoom;
+    // Draw A2 sheet background in world coordinates (0,0) to (A2_WIDTH_FT, A2_HEIGHT_FT)
+    const sheetTopLeft = worldToCanvas({ x: 0, y: 0 }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
+    const sheetBottomRight = worldToCanvas({ x: A2_WIDTH_FT, y: A2_HEIGHT_FT }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     
-    // Center the sheet
-    const sheetX = (canvas.width - sheetWidth) / 2;
-    const sheetY = (canvas.height - sheetHeight) / 2;
+    const sheetX = sheetTopLeft.x;
+    const sheetY = sheetTopLeft.y;
+    const sheetWidth = sheetBottomRight.x - sheetTopLeft.x;
+    const sheetHeight = sheetBottomRight.y - sheetTopLeft.y;
 
     // Draw A2 sheet background (white canvas)
     const sheetColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-sheet').trim();
@@ -108,33 +116,33 @@ export function FloorplanCanvas({
 
     // Draw all shapes
     shapes.forEach(shape => {
-      drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId);
+      drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId, canvasSize);
       if (shape.labelVisibility) {
-        drawMeasurements(ctx, shape, viewTransform);
+        drawMeasurements(ctx, shape, viewTransform, canvasSize);
       }
     });
 
     // Draw current drawing
     if (isDrawing && currentPoints.length > 0) {
-      drawTemporaryShape(ctx, currentPoints, viewTransform, activeTool);
+      drawTemporaryShape(ctx, currentPoints, viewTransform, activeTool, canvasSize);
     }
 
     // Draw snap indicator
     if (snapPoint) {
-      drawSnapIndicator(ctx, snapPoint, viewTransform);
+      drawSnapIndicator(ctx, snapPoint, viewTransform, canvasSize);
     }
 
     // Draw handles for selected shape
     if (selectedShapeId) {
       const shape = shapes.find(s => s.id === selectedShapeId);
       if (shape) {
-        drawHandles(ctx, shape, viewTransform, hoveredHandle);
+        drawHandles(ctx, shape, viewTransform, hoveredHandle, canvasSize);
       }
     }
 
     // Draw live measurement during dragging
     if (liveMeasurement) {
-      const canvasPos = worldToCanvas(liveMeasurement.position, viewTransform, DEFAULT_EDITING_DPI);
+      const canvasPos = worldToCanvas(liveMeasurement.position, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
       ctx.font = 'bold 14px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -158,14 +166,21 @@ export function FloorplanCanvas({
 
     const rect = canvas.getBoundingClientRect();
     const canvasPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI);
+    const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
+
+    // Spacebar pan mode or pan tool
+    if (spacePressed || activeTool === 'pan') {
+      setIsPanning(true);
+      setPanStart(canvasPoint);
+      return;
+    }
 
     if (activeTool === 'select') {
       // Check if clicking on a handle of the selected shape
       if (selectedShapeId) {
         const shape = shapes.find(s => s.id === selectedShapeId);
         if (shape) {
-          const handle = findHandleAtPoint(shape, canvasPoint, viewTransform);
+          const handle = findHandleAtPoint(shape, canvasPoint, viewTransform, canvasSize);
           if (handle) {
             // Start handle drag
             setDragState({
@@ -190,7 +205,7 @@ export function FloorplanCanvas({
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
       setCurrentPoints([point]);
     }
-  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId]);
+  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId, canvasSize, spacePressed]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -198,7 +213,25 @@ export function FloorplanCanvas({
 
     const rect = canvas.getBoundingClientRect();
     const canvasPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI);
+    const worldPoint = canvasToWorld(canvasPoint, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
+
+    // Update mouse position for cursor hints
+    setMousePosition(worldPoint);
+
+    // Handle panning
+    if (isPanning && panStart) {
+      const dx = canvasPoint.x - panStart.x;
+      const dy = canvasPoint.y - panStart.y;
+      
+      onViewTransformChange({
+        ...viewTransform,
+        panX: viewTransform.panX + dx,
+        panY: viewTransform.panY + dy,
+      });
+      
+      setPanStart(canvasPoint);
+      return;
+    }
 
     // Handle dragging transform handles
     if (dragState) {
@@ -235,7 +268,7 @@ export function FloorplanCanvas({
     if (selectedShapeId && activeTool === 'select') {
       const shape = shapes.find(s => s.id === selectedShapeId);
       if (shape) {
-        const handle = findHandleAtPoint(shape, canvasPoint, viewTransform);
+        const handle = findHandleAtPoint(shape, canvasPoint, viewTransform, canvasSize);
         if (handle) {
           setHoveredHandle({ shapeId: shape.id, handle });
         } else {
@@ -260,9 +293,16 @@ export function FloorplanCanvas({
         setSnapPoint(snap);
       }
     }
-  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes, dragState, selectedShapeId, onShapesChange]);
+  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes, dragState, selectedShapeId, onShapesChange, canvasSize, isPanning, panStart, onViewTransformChange]);
 
   const handleMouseUp = useCallback(() => {
+    // Clear pan state
+    if (isPanning) {
+      setIsPanning(false);
+      setPanStart(null);
+      return;
+    }
+
     // Clear drag state
     if (dragState) {
       setDragState(null);
@@ -270,11 +310,18 @@ export function FloorplanCanvas({
       return;
     }
 
+    // For polyline mode (polygon), don't finish on mouseup - wait for double-click or Enter
+    if (isDrawing && activeTool === 'polygon') {
+      return; // Continue drawing
+    }
+
     if (isDrawing && currentPoints.length >= 2) {
-      // Determine stroke color and layer based on context
-      const isPlotBoundary = shapes.length === 0;
-      const hasPlot = shapes.some(s => s.layer === 'plot');
-      const isHouseLayer = hasPlot && !isPlotBoundary && activeTool === 'polygon';
+      // Determine stroke color based on current wizard step
+      const strokeColor = STEP_COLORS[currentStep];
+      
+      // Determine layer based on step
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
       
       // Create new shape based on tool
       const newShape: FloorplanShape = {
@@ -282,11 +329,11 @@ export function FloorplanCanvas({
         type: activeTool === 'rectangle' ? 'rectangle' : activeTool === 'freehand' ? 'freehand' : activeTool === 'polygon' ? 'polygon' : 'line',
         vertices: activeTool === 'rectangle' ? createRectangleVertices(currentPoints) : currentPoints,
         strokeMm: 0.25,
-        strokeColor: isPlotBoundary ? '#1e3a8a' : isHouseLayer ? '#9a3412' : '#000000', // Dark blue for plot, brick red for house
-        layer: isPlotBoundary ? 'plot' : isHouseLayer ? 'house' : 'default',
+        strokeColor,
+        layer,
         labelVisibility: true,
         lockAspect: false,
-        name: isPlotBoundary ? 'Plot Boundary' : isHouseLayer ? 'House' : undefined,
+        name,
       };
 
       onShapesChange([...shapes, newShape]);
@@ -296,7 +343,143 @@ export function FloorplanCanvas({
     setIsDrawing(false);
     setCurrentPoints([]);
     setSnapPoint(null);
-  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState]);
+  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState, isPanning]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    
+    // Finish polyline drawing on double-click
+    if (isDrawing && activeTool === 'polygon' && currentPoints.length >= 2) {
+      // Determine stroke color based on current wizard step
+      const strokeColor = STEP_COLORS[currentStep];
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
+      
+      const newShape: FloorplanShape = {
+        id: crypto.randomUUID(),
+        type: 'polygon',
+        vertices: currentPoints,
+        strokeMm: 0.25,
+        strokeColor,
+        layer,
+        labelVisibility: true,
+        lockAspect: false,
+        name,
+      };
+
+      onShapesChange([...shapes, newShape]);
+      onSelectShape(newShape.id);
+      
+      setIsDrawing(false);
+      setCurrentPoints([]);
+      setSnapPoint(null);
+    }
+  }, [isDrawing, activeTool, currentPoints, shapes, onShapesChange, onSelectShape]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Spacebar: enable pan mode
+    if (e.code === 'Space' && !isDrawing && !spacePressed) {
+      e.preventDefault();
+      setSpacePressed(true);
+    }
+
+    // Delete: delete selected shape
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShapeId && !isDrawing) {
+      e.preventDefault();
+      const updatedShapes = shapes.filter(s => s.id !== selectedShapeId);
+      onShapesChange(updatedShapes);
+      onSelectShape(null);
+      return;
+    }
+
+    // Escape: cancel current drawing or deselect
+    if (e.key === 'Escape') {
+      if (isDrawing) {
+        setIsDrawing(false);
+        setCurrentPoints([]);
+        setSnapPoint(null);
+      } else {
+        onSelectShape(null);
+      }
+    }
+
+    // Backspace: undo last vertex in polyline
+    if (e.key === 'Backspace' && isDrawing && activeTool === 'polygon' && currentPoints.length > 1) {
+      e.preventDefault();
+      setCurrentPoints(prev => prev.slice(0, -1));
+    }
+
+    // Enter: finish polyline drawing
+    if (e.key === 'Enter' && isDrawing && activeTool === 'polygon' && currentPoints.length >= 2) {
+      e.preventDefault();
+      
+      const strokeColor = STEP_COLORS[currentStep];
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
+      
+      const newShape: FloorplanShape = {
+        id: crypto.randomUUID(),
+        type: 'polygon',
+        vertices: currentPoints,
+        strokeMm: 0.25,
+        strokeColor,
+        layer,
+        labelVisibility: true,
+        lockAspect: false,
+        name,
+      };
+
+      onShapesChange([...shapes, newShape]);
+      onSelectShape(newShape.id);
+      
+      setIsDrawing(false);
+      setCurrentPoints([]);
+      setSnapPoint(null);
+    }
+  }, [isDrawing, activeTool, currentPoints, shapes, onShapesChange, onSelectShape, currentStep, spacePressed, selectedShapeId]);
+
+  const handleKeyUp = useCallback((e: KeyboardEvent) => {
+    // Spacebar: disable pan mode
+    if (e.code === 'Space') {
+      setSpacePressed(false);
+      setIsPanning(false);
+      setPanStart(null);
+    }
+  }, []);
+
+  // Add keyboard event listeners
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp]);
+
+  // Zoom to fit A2 sheet
+  const handleZoomToFit = useCallback(() => {
+    const ppf = pixelsPerFoot(DEFAULT_EDITING_DPI);
+    const sheetWidthPx = A2_WIDTH_FT * ppf;
+    const sheetHeightPx = A2_HEIGHT_FT * ppf;
+    
+    const zoomX = (canvasSize.width * 0.9) / sheetWidthPx;
+    const zoomY = (canvasSize.height * 0.9) / sheetHeightPx;
+    const zoom = Math.min(zoomX, zoomY, 1);
+    
+    onViewTransformChange({
+      panX: 0,
+      panY: 0,
+      zoom,
+    });
+  }, [canvasSize, onViewTransformChange]);
+
+  // Determine cursor style
+  const getCursorClass = () => {
+    if (spacePressed || activeTool === 'pan') return isPanning ? 'cursor-grabbing' : 'cursor-grab';
+    if (activeTool === 'select') return 'cursor-default';
+    return 'cursor-crosshair';
+  };
 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-background">
@@ -307,14 +490,45 @@ export function FloorplanCanvas({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        className="cursor-crosshair"
+        onDoubleClick={handleDoubleClick}
+        className={getCursorClass()}
         data-testid="floorplan-canvas"
       />
       
-      {/* Zoom indicator */}
-      <div className="absolute top-4 right-4 px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border text-sm font-mono">
-        {(viewTransform.zoom * 100).toFixed(0)}%
+      {/* Zoom controls */}
+      <div className="absolute top-4 right-4 flex gap-2">
+        <button
+          onClick={handleZoomToFit}
+          className="px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border text-sm hover:bg-accent transition-colors"
+          data-testid="button-zoom-fit"
+          title="Zoom to fit (fit entire A2 sheet)"
+        >
+          Fit
+        </button>
+        <div className="px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border text-sm font-mono" data-testid="text-zoom-level">
+          {(viewTransform.zoom * 100).toFixed(0)}%
+        </div>
       </div>
+
+      {/* Mouse position indicator */}
+      {mousePosition && (
+        <div className="absolute bottom-4 right-4 px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border text-xs font-mono" data-testid="text-mouse-position">
+          X: {mousePosition.x.toFixed(1)}ft | Y: {mousePosition.y.toFixed(1)}ft
+        </div>
+      )}
+
+      {/* Keyboard hints */}
+      {isDrawing && activeTool === 'polygon' && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-background/90 backdrop-blur-sm rounded-md border text-sm shadow-lg" data-testid="text-drawing-hints">
+          Click to add vertex | <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Backspace</kbd> undo | <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Enter</kbd> or double-click to finish | <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Esc</kbd> cancel
+        </div>
+      )}
+
+      {spacePressed && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary/90 backdrop-blur-sm rounded-md text-sm text-primary-foreground shadow-lg" data-testid="text-pan-mode">
+          Pan Mode Active
+        </div>
+      )}
       
       {/* Tooltip for selected shapes */}
       {selectedShapeId && (
@@ -368,11 +582,12 @@ function drawShape(
   ctx: CanvasRenderingContext2D,
   shape: FloorplanShape,
   viewTransform: ViewTransform,
-  isSelected: boolean
+  isSelected: boolean,
+  canvasSize: { width: number; height: number }
 ) {
   if (shape.vertices.length < 2) return;
 
-  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI));
+  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
 
   ctx.strokeStyle = shape.strokeColor;
   ctx.lineWidth = 2;
@@ -403,11 +618,12 @@ function drawTemporaryShape(
   ctx: CanvasRenderingContext2D,
   points: Point[],
   viewTransform: ViewTransform,
-  tool: ToolType
+  tool: ToolType,
+  canvasSize: { width: number; height: number }
 ) {
   if (points.length < 2) return;
 
-  const canvasPoints = points.map(p => worldToCanvas(p, viewTransform, DEFAULT_EDITING_DPI));
+  const canvasPoints = points.map(p => worldToCanvas(p, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
 
   const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
   ctx.strokeStyle = `hsl(${primaryColor})`;
@@ -430,8 +646,8 @@ function drawTemporaryShape(
   ctx.setLineDash([]);
 }
 
-function drawSnapIndicator(ctx: CanvasRenderingContext2D, point: Point, viewTransform: ViewTransform) {
-  const canvasPoint = worldToCanvas(point, viewTransform, DEFAULT_EDITING_DPI);
+function drawSnapIndicator(ctx: CanvasRenderingContext2D, point: Point, viewTransform: ViewTransform, canvasSize: { width: number; height: number }) {
+  const canvasPoint = worldToCanvas(point, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
   
   const snapColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-snap').trim();
   ctx.fillStyle = `hsl(${snapColor})`;
@@ -450,9 +666,10 @@ function drawHandles(
   ctx: CanvasRenderingContext2D,
   shape: FloorplanShape,
   viewTransform: ViewTransform,
-  hoveredHandle: { shapeId: string; handle: HandleType } | null
+  hoveredHandle: { shapeId: string; handle: HandleType } | null,
+  canvasSize: { width: number; height: number }
 ) {
-  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI));
+  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
 
   if (canvasVertices.length === 0) return;
 
@@ -544,7 +761,8 @@ function createRectangleVertices(points: Point[]): Point[] {
 function drawMeasurements(
   ctx: CanvasRenderingContext2D,
   shape: FloorplanShape,
-  viewTransform: ViewTransform
+  viewTransform: ViewTransform,
+  canvasSize: { width: number; height: number }
 ) {
   if (shape.vertices.length < 2) return;
 
@@ -554,8 +772,8 @@ function drawMeasurements(
     if (shape.type === 'line' && i > 0) break;
     if (shape.type === 'freehand' && i >= shape.vertices.length - 1) break;
 
-    const start = worldToCanvas(shape.vertices[i], viewTransform, DEFAULT_EDITING_DPI);
-    const end = worldToCanvas(shape.vertices[j], viewTransform, DEFAULT_EDITING_DPI);
+    const start = worldToCanvas(shape.vertices[i], viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
+    const end = worldToCanvas(shape.vertices[j], viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     
     const dx = shape.vertices[j].x - shape.vertices[i].x;
     const dy = shape.vertices[j].y - shape.vertices[i].y;
@@ -593,9 +811,10 @@ function drawMeasurements(
 function findHandleAtPoint(
   shape: FloorplanShape,
   canvasPoint: Point,
-  viewTransform: ViewTransform
+  viewTransform: ViewTransform,
+  canvasSize: { width: number; height: number }
 ): HandleType | null {
-  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI));
+  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
   
   if (canvasVertices.length === 0) return null;
 

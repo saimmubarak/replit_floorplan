@@ -2,8 +2,8 @@ import {
   type FloorplanShape,
   type ExportOptions,
   type Point,
-  PLOT_SCALE,
   MM_TO_INCHES,
+  A2_SHEET_HEIGHT_MM,
   A2_WIDTH_FT,
   A2_HEIGHT_FT,
 } from "@shared/schema";
@@ -13,7 +13,11 @@ import {
 // ============================================
 
 export function pixelsPerFoot(dpi: number): number {
-  return dpi / PLOT_SCALE;
+  // Calculate pixels per foot based on the A2 sheet scale
+  // Scale: 191.5ft = 420mm on paper
+  const paperHeightInches = A2_SHEET_HEIGHT_MM * MM_TO_INCHES;
+  const paperHeightPixels = paperHeightInches * dpi;
+  return paperHeightPixels / A2_HEIGHT_FT;
 }
 
 export function mmToPixels(mm: number, dpi: number): number {
@@ -33,25 +37,31 @@ export function worldToExportPixels(
 }
 
 // ============================================
-// EXACT DPI CALCULATIONS (as specified)
+// EXACT DPI CALCULATIONS (based on A2 scale)
 // ============================================
+
+function calculatePixelsPerFoot(dpi: number): number {
+  const paperHeightInches = A2_SHEET_HEIGHT_MM * MM_TO_INCHES;
+  const paperHeightPixels = paperHeightInches * dpi;
+  return paperHeightPixels / A2_HEIGHT_FT;
+}
 
 export const DPI_CALCULATIONS = {
   96: {
-    pixelsPerFoot: 96 / 3.1,  // 30.96774193548387
-    strokePx: (0.25 / 25.4) * 96,  // 0.9448818897637795
+    pixelsPerFoot: calculatePixelsPerFoot(96),
+    strokePx: (0.25 / 25.4) * 96,
   },
   150: {
-    pixelsPerFoot: 150 / 3.1,  // 48.387096774193544
-    strokePx: (0.25 / 25.4) * 150,  // 1.4763779527559056
+    pixelsPerFoot: calculatePixelsPerFoot(150),
+    strokePx: (0.25 / 25.4) * 150,
   },
   300: {
-    pixelsPerFoot: 300 / 3.1,  // 96.77419354838709
-    strokePx: (0.25 / 25.4) * 300,  // 2.952755905511811
+    pixelsPerFoot: calculatePixelsPerFoot(300),
+    strokePx: (0.25 / 25.4) * 300,
   },
   600: {
-    pixelsPerFoot: 600 / 3.1,  // 193.54838709677418
-    strokePx: (0.25 / 25.4) * 600,  // 5.905511811023622
+    pixelsPerFoot: calculatePixelsPerFoot(600),
+    strokePx: (0.25 / 25.4) * 600,
   },
 };
 
