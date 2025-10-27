@@ -170,14 +170,14 @@ export const SNAP_THRESHOLD_FT = 0.5;
 export const GRID_SPACING_FT = 5;
 export const MM_TO_INCHES = 1 / 25.4;
 
-// A2 sheet dimensions: 594mm x 420mm (landscape)
+// A2 sheet dimensions: 594mm x 420mm (portrait)
 // Scale: 191.5ft in real world = 420mm on paper
 export const A2_SHEET_WIDTH_MM = 594;
 export const A2_SHEET_HEIGHT_MM = 420;
 
-// Real world dimensions that fit on A2 sheet at the specified scale
-export const A2_WIDTH_FT = 191.5 * (A2_SHEET_WIDTH_MM / A2_SHEET_HEIGHT_MM); // ~270.64 ft
-export const A2_HEIGHT_FT = 191.5; // Height matches the scale requirement
+// Real world dimensions that fit on A2 sheet at the specified scale (portrait orientation)
+export const A2_WIDTH_FT = 191.5; // Width matches the scale requirement
+export const A2_HEIGHT_FT = 191.5 * (A2_SHEET_WIDTH_MM / A2_SHEET_HEIGHT_MM); // ~270.64 ft
 
 // Drawing area bounds (world coordinates in feet)
 export const SHEET_BOUNDS = {

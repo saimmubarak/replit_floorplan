@@ -203,34 +203,34 @@ export default function Floorplan() {
         break;
       case 'l-shaped':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
           { x: plotCenterX + size / 2, y: plotCenterY },
           { x: plotCenterX, y: plotCenterY },
-          { x: plotCenterX, y: plotCenterY + size / 2 },
-          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
         ];
         break;
       case 'mirror-l':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
           { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
-          { x: plotCenterX, y: plotCenterY + size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX, y: plotCenterY - size / 2 },
           { x: plotCenterX, y: plotCenterY },
           { x: plotCenterX - size / 2, y: plotCenterY },
         ];
         break;
       case 'u-shaped':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
-          { x: plotCenterX - size / 4, y: plotCenterY - size / 2 },
-          { x: plotCenterX - size / 4, y: plotCenterY + size / 4 },
-          { x: plotCenterX + size / 4, y: plotCenterY + size / 4 },
-          { x: plotCenterX + size / 4, y: plotCenterY - size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
           { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY - size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY - size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY + size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
         ];
         break;
     }

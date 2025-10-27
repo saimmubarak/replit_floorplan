@@ -67,6 +67,7 @@ export function FloorplanCanvas({
   const [panStart, setPanStart] = useState<Point | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [mousePosition, setMousePosition] = useState<Point | null>(null);
+  const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
 
   // Update canvas size on resize
   useEffect(() => {
@@ -124,7 +125,10 @@ export function FloorplanCanvas({
 
     // Draw current drawing
     if (isDrawing && currentPoints.length > 0) {
-      drawTemporaryShape(ctx, currentPoints, viewTransform, activeTool, canvasSize);
+      const pointsToDraw = activeTool === 'polygon' && previewPoint 
+        ? [...currentPoints, previewPoint] 
+        : currentPoints;
+      drawTemporaryShape(ctx, pointsToDraw, viewTransform, activeTool, canvasSize);
     }
 
     // Draw snap indicator
@@ -158,7 +162,7 @@ export function FloorplanCanvas({
       ctx.fillStyle = '#ffffff';
       ctx.fillText(liveMeasurement.label, canvasPos.x, canvasPos.y);
     }
-  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement]);
+  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement, previewPoint]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -200,12 +204,19 @@ export function FloorplanCanvas({
       const clickedShape = findShapeAtPoint(shapes, worldPoint);
       onSelectShape(clickedShape?.id || null);
     } else if (activeTool !== 'pan') {
-      // Start drawing
-      setIsDrawing(true);
+      // Drawing mode
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
-      setCurrentPoints([point]);
+      
+      if (activeTool === 'polygon' && isDrawing) {
+        // Add point to existing polygon
+        setCurrentPoints(prev => [...prev, point]);
+      } else {
+        // Start drawing
+        setIsDrawing(true);
+        setCurrentPoints([point]);
+      }
     }
-  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId, canvasSize, spacePressed]);
+  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId, canvasSize, spacePressed, isDrawing]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -282,6 +293,9 @@ export function FloorplanCanvas({
       
       if (activeTool === 'freehand') {
         setCurrentPoints(prev => [...prev, point]);
+      } else if (activeTool === 'polygon') {
+        // For polygon mode, update preview point only
+        setPreviewPoint(point);
       } else {
         setCurrentPoints(prev => [prev[0], point]);
       }
@@ -343,7 +357,8 @@ export function FloorplanCanvas({
     setIsDrawing(false);
     setCurrentPoints([]);
     setSnapPoint(null);
-  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState, isPanning]);
+    setPreviewPoint(null);
+  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState, isPanning, currentStep]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -373,8 +388,9 @@ export function FloorplanCanvas({
       setIsDrawing(false);
       setCurrentPoints([]);
       setSnapPoint(null);
+      setPreviewPoint(null);
     }
-  }, [isDrawing, activeTool, currentPoints, shapes, onShapesChange, onSelectShape]);
+  }, [isDrawing, activeTool, currentPoints, shapes, onShapesChange, onSelectShape, currentStep]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Spacebar: enable pan mode
@@ -398,6 +414,7 @@ export function FloorplanCanvas({
         setIsDrawing(false);
         setCurrentPoints([]);
         setSnapPoint(null);
+        setPreviewPoint(null);
       } else {
         onSelectShape(null);
       }
@@ -435,6 +452,7 @@ export function FloorplanCanvas({
       setIsDrawing(false);
       setCurrentPoints([]);
       setSnapPoint(null);
+      setPreviewPoint(null);
     }
   }, [isDrawing, activeTool, currentPoints, shapes, onShapesChange, onSelectShape, currentStep, spacePressed, selectedShapeId]);
 
