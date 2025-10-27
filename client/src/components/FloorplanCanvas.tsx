@@ -68,6 +68,7 @@ export function FloorplanCanvas({
   const [spacePressed, setSpacePressed] = useState(false);
   const [mousePosition, setMousePosition] = useState<Point | null>(null);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
+  const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
 
   // Update canvas size on resize
   useEffect(() => {
@@ -117,7 +118,8 @@ export function FloorplanCanvas({
 
     // Draw all shapes
     shapes.forEach(shape => {
-      drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId, canvasSize);
+      const isHovered = shape.id === hoveredShapeId && activeTool === 'select' && !selectedShapeId;
+      drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId, canvasSize, isHovered);
       if (shape.labelVisibility) {
         drawMeasurements(ctx, shape, viewTransform, canvasSize);
       }
@@ -162,7 +164,7 @@ export function FloorplanCanvas({
       ctx.fillStyle = '#ffffff';
       ctx.fillText(liveMeasurement.label, canvasPos.x, canvasPos.y);
     }
-  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement, previewPoint]);
+  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement, previewPoint, hoveredShapeId]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -203,8 +205,8 @@ export function FloorplanCanvas({
       // Check if clicking on a shape
       const clickedShape = findShapeAtPoint(shapes, worldPoint);
       onSelectShape(clickedShape?.id || null);
-    } else if (activeTool !== 'pan') {
-      // Drawing mode
+    } else {
+      // Drawing mode (rectangle, polygon, line, freehand)
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
       
       if (activeTool === 'polygon' && isDrawing) {
@@ -286,6 +288,12 @@ export function FloorplanCanvas({
           setHoveredHandle(null);
         }
       }
+    }
+
+    // Update hovered shape (for visual feedback when hovering over unselected shapes)
+    if (activeTool === 'select' && !dragState && !isPanning) {
+      const hoveredShape = findShapeAtPoint(shapes, worldPoint);
+      setHoveredShapeId(hoveredShape?.id || null);
     }
 
     if (isDrawing) {
@@ -601,7 +609,8 @@ function drawShape(
   shape: FloorplanShape,
   viewTransform: ViewTransform,
   isSelected: boolean,
-  canvasSize: { width: number; height: number }
+  canvasSize: { width: number; height: number },
+  isHovered: boolean = false
 ) {
   if (shape.vertices.length < 2) return;
 
@@ -629,6 +638,11 @@ function drawShape(
     ctx.setLineDash([5, 5]);
     ctx.stroke();
     ctx.setLineDash([]);
+  } else if (isHovered) {
+    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+    ctx.strokeStyle = `hsl(${primaryColor} / 0.4)`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
   }
 }
 
@@ -749,19 +763,69 @@ function findShapeAtPoint(shapes: FloorplanShape[], point: Point): FloorplanShap
 }
 
 function isPointInShape(point: Point, shape: FloorplanShape): boolean {
+  // First check bounding box with some tolerance for easier selection
+  const tolerance = 0.5; // feet
   const bounds = {
     min: {
-      x: Math.min(...shape.vertices.map(v => v.x)),
-      y: Math.min(...shape.vertices.map(v => v.y)),
+      x: Math.min(...shape.vertices.map(v => v.x)) - tolerance,
+      y: Math.min(...shape.vertices.map(v => v.y)) - tolerance,
     },
     max: {
-      x: Math.max(...shape.vertices.map(v => v.x)),
-      y: Math.max(...shape.vertices.map(v => v.y)),
+      x: Math.max(...shape.vertices.map(v => v.x)) + tolerance,
+      y: Math.max(...shape.vertices.map(v => v.y)) + tolerance,
     },
   };
 
-  return point.x >= bounds.min.x && point.x <= bounds.max.x &&
-         point.y >= bounds.min.y && point.y <= bounds.max.y;
+  if (point.x < bounds.min.x || point.x > bounds.max.x ||
+      point.y < bounds.min.y || point.y > bounds.max.y) {
+    return false;
+  }
+
+  // For polygons and rectangles, use ray casting algorithm for accurate point-in-polygon test
+  if (shape.type === 'polygon' || shape.type === 'rectangle') {
+    return pointInPolygon(point, shape.vertices);
+  }
+
+  // For lines and freehand, check if point is near any segment
+  if (shape.type === 'line' || shape.type === 'freehand') {
+    const threshold = 1.0; // feet
+    for (let i = 0; i < shape.vertices.length - 1; i++) {
+      if (distanceToSegment(point, shape.vertices[i], shape.vertices[i + 1]) < threshold) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return true;
+}
+
+// Ray casting algorithm for point-in-polygon test
+function pointInPolygon(point: Point, vertices: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x, yi = vertices[i].y;
+    const xj = vertices[j].x, yj = vertices[j].y;
+    
+    const intersect = ((yi > point.y) !== (yj > point.y))
+        && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Distance from point to line segment
+function distanceToSegment(point: Point, v: Point, w: Point): number {
+  const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+  if (l2 === 0) return Math.sqrt((point.x - v.x) ** 2 + (point.y - v.y) ** 2);
+  
+  let t = ((point.x - v.x) * (w.x - v.x) + (point.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  
+  const projX = v.x + t * (w.x - v.x);
+  const projY = v.y + t * (w.y - v.y);
+  
+  return Math.sqrt((point.x - projX) ** 2 + (point.y - projY) ** 2);
 }
 
 function createRectangleVertices(points: Point[]): Point[] {
@@ -802,9 +866,23 @@ function drawMeasurements(
     
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     
+    // Calculate offset position based on wall orientation
+    // Place labels above horizontal walls, to the left of vertical walls
+    const isHorizontal = Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle));
+    const offsetDistance = 20; // pixels
+    
+    let labelX = midX;
+    let labelY = midY;
+    
+    if (isHorizontal) {
+      // For horizontal walls, place label above or below
+      labelY = midY - offsetDistance;
+    } else {
+      // For vertical walls, place label to the left or right
+      labelX = midX - offsetDistance;
+    }
+    
     ctx.save();
-    ctx.translate(midX, midY);
-    ctx.rotate(angle);
     
     const label = `${length.toFixed(1)} ft`;
     ctx.font = '12px monospace';
@@ -817,10 +895,10 @@ function drawMeasurements(
     const bgHeight = 16;
     
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.fillRect(-bgWidth / 2, -bgHeight / 2 - 8, bgWidth, bgHeight);
+    ctx.fillRect(labelX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight);
     
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(label, 0, -8);
+    ctx.fillText(label, labelX, labelY);
     
     ctx.restore();
   }

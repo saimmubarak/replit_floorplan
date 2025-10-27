@@ -203,34 +203,34 @@ export default function Floorplan() {
         break;
       case 'l-shaped':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
           { x: plotCenterX + size / 2, y: plotCenterY },
           { x: plotCenterX, y: plotCenterY },
-          { x: plotCenterX, y: plotCenterY - size / 2 },
-          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
         ];
         break;
       case 'mirror-l':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
           { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
-          { x: plotCenterX, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX, y: plotCenterY + size / 2 },
           { x: plotCenterX, y: plotCenterY },
           { x: plotCenterX - size / 2, y: plotCenterY },
         ];
         break;
       case 'u-shaped':
         vertices = [
-          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
-          { x: plotCenterX - size / 4, y: plotCenterY + size / 2 },
-          { x: plotCenterX - size / 4, y: plotCenterY - size / 4 },
-          { x: plotCenterX + size / 4, y: plotCenterY - size / 4 },
-          { x: plotCenterX + size / 4, y: plotCenterY + size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
-          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
           { x: plotCenterX - size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY - size / 2 },
+          { x: plotCenterX - size / 4, y: plotCenterY + size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY + size / 4 },
+          { x: plotCenterX + size / 4, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY - size / 2 },
+          { x: plotCenterX + size / 2, y: plotCenterY + size / 2 },
+          { x: plotCenterX - size / 2, y: plotCenterY + size / 2 },
         ];
         break;
     }
@@ -424,7 +424,7 @@ export default function Floorplan() {
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Steps Bar */}
-      <div className="h-16 border-b px-6 flex items-center justify-between">
+      <div className="h-20 border-b px-8 flex items-center justify-between bg-muted/20">
         <WizardSteps
           currentStep={currentStep}
           completedSteps={completedSteps}
@@ -455,7 +455,7 @@ export default function Floorplan() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel */}
-        <div className="w-80 border-r bg-background overflow-y-auto flex-shrink-0">
+        <div className="w-80 border-r bg-muted/5 overflow-y-auto flex-shrink-0 shadow-sm">
           {currentStep === 'plot-size' && (
             <PlotSizePanel
               onCreatePreset={handleCreatePreset}
@@ -513,13 +513,13 @@ export default function Floorplan() {
           </div>
 
           {/* Step Prompt */}
-          <div className="h-12 border-t px-4 flex items-center bg-muted/30">
-            <p className="text-sm text-muted-foreground">{getStepPrompt()}</p>
+          <div className="h-14 border-t px-6 flex items-center bg-muted/20">
+            <p className="text-sm font-medium text-foreground">{getStepPrompt()}</p>
           </div>
         </div>
 
         {/* Right Panel */}
-        <div className="w-72 border-l bg-background overflow-y-auto flex-shrink-0">
+        <div className="w-80 border-l bg-muted/5 overflow-y-auto flex-shrink-0 shadow-sm">
           <PropertiesPanel
             selectedShape={selectedShape}
             onUpdateShape={handleUpdateShape}
