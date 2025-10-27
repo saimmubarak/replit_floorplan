@@ -1,11 +1,22 @@
-import { PLOT_SCALE, MM_TO_INCHES, type Point, type ViewTransform } from "@shared/schema";
+import { 
+  MM_TO_INCHES, 
+  A2_SHEET_HEIGHT_MM, 
+  A2_WIDTH_FT,
+  A2_HEIGHT_FT,
+  type Point, 
+  type ViewTransform 
+} from "@shared/schema";
 
 // ============================================
 // COORDINATE CONVERSION FUNCTIONS
 // ============================================
 
 export function pixelsPerFoot(dpi: number): number {
-  return dpi / PLOT_SCALE;
+  // Calculate pixels per foot based on the A2 sheet scale
+  // Scale: 191.5ft = 420mm on paper
+  const paperHeightInches = A2_SHEET_HEIGHT_MM * MM_TO_INCHES;
+  const paperHeightPixels = paperHeightInches * dpi;
+  return paperHeightPixels / A2_HEIGHT_FT;
 }
 
 export function mmToPixels(mm: number, dpi: number): number {
@@ -15,24 +26,49 @@ export function mmToPixels(mm: number, dpi: number): number {
 export function worldToCanvas(
   point: Point,
   viewTransform: ViewTransform,
-  editingDPI: number
+  editingDPI: number,
+  canvasWidth: number,
+  canvasHeight: number
 ): Point {
   const ppf = pixelsPerFoot(editingDPI);
+  
+  // Calculate the center of the canvas
+  const canvasCenterX = canvasWidth / 2;
+  const canvasCenterY = canvasHeight / 2;
+  
+  // Offset world coordinates so the A2 sheet center (not origin) maps to canvas center
+  const offsetX = point.x - (A2_WIDTH_FT / 2);
+  const offsetY = point.y - (A2_HEIGHT_FT / 2);
+  
+  // Transform world coordinates relative to canvas center
+  // This ensures the A2 sheet stays centered on the canvas during zoom/pan
   return {
-    x: (point.x * ppf * viewTransform.zoom) + viewTransform.panX,
-    y: (point.y * ppf * viewTransform.zoom) + viewTransform.panY,
+    x: canvasCenterX + (offsetX * ppf * viewTransform.zoom) + viewTransform.panX,
+    y: canvasCenterY + (offsetY * ppf * viewTransform.zoom) + viewTransform.panY,
   };
 }
 
 export function canvasToWorld(
   point: Point,
   viewTransform: ViewTransform,
-  editingDPI: number
+  editingDPI: number,
+  canvasWidth: number,
+  canvasHeight: number
 ): Point {
   const ppf = pixelsPerFoot(editingDPI);
+  
+  // Calculate the center of the canvas
+  const canvasCenterX = canvasWidth / 2;
+  const canvasCenterY = canvasHeight / 2;
+  
+  // Convert canvas coordinates back to world coordinates
+  const worldX = (point.x - canvasCenterX - viewTransform.panX) / (ppf * viewTransform.zoom);
+  const worldY = (point.y - canvasCenterY - viewTransform.panY) / (ppf * viewTransform.zoom);
+  
+  // Add back the sheet center offset
   return {
-    x: (point.x - viewTransform.panX) / (ppf * viewTransform.zoom),
-    y: (point.y - viewTransform.panY) / (ppf * viewTransform.zoom),
+    x: worldX + (A2_WIDTH_FT / 2),
+    y: worldY + (A2_HEIGHT_FT / 2),
   };
 }
 
