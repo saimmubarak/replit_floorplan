@@ -141,6 +141,7 @@ export default function Floorplan() {
       labelVisibility: true,
       lockAspect: false,
       name: 'Plot Boundary',
+      rotation: 0,
     };
 
     setShapes([newShape]);
@@ -245,6 +246,7 @@ export default function Floorplan() {
       labelVisibility: true,
       lockAspect: false,
       name: `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} House`,
+      rotation: 0,
     };
 
     setShapes([...shapes, newShape]);

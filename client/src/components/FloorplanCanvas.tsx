@@ -22,6 +22,7 @@ import {
   findSnapTarget,
 } from "@/lib/coordinate-math";
 import { drawRoof } from "@/lib/roof-renderer";
+import { improvedTransformVertices } from "@/lib/improved-transform";
 
 interface FloorplanCanvasProps {
   shapes: FloorplanShape[];
@@ -257,23 +258,29 @@ export function FloorplanCanvas({
     if (dragState) {
       const shape = shapes.find(s => s.id === dragState.shapeId);
       if (shape) {
-        const newVertices = transformVertices(
+        const result = transformVertices(
           dragState.originalVertices,
           dragState.handle,
           dragState.startPoint,
           worldPoint,
           e.shiftKey,
-          e.altKey
+          e.altKey,
+          shape
         );
         
-        // Update shape vertices
+        // Update shape with new vertices and rotation
+        let updatedShape = { ...shape, vertices: result.vertices };
+        if (result.rotationDelta !== undefined) {
+          updatedShape.rotation = (shape.rotation || 0) + result.rotationDelta;
+        }
+        
         const updatedShapes = shapes.map(s =>
-          s.id === dragState.shapeId ? { ...s, vertices: newVertices } : s
+          s.id === dragState.shapeId ? updatedShape : s
         );
         onShapesChange(updatedShapes);
         
         // Calculate and show live measurement
-        const measurement = calculateShapeMeasurement(newVertices);
+        const measurement = calculateShapeMeasurement(result.vertices);
         if (measurement) {
           setLiveMeasurement({
             label: measurement.label,
@@ -363,6 +370,7 @@ export function FloorplanCanvas({
         labelVisibility: true,
         lockAspect: false,
         name,
+        rotation: 0,
       };
 
       onShapesChange([...shapes, newShape]);
@@ -395,6 +403,7 @@ export function FloorplanCanvas({
         labelVisibility: true,
         lockAspect: false,
         name,
+        rotation: 0,
       };
 
       onShapesChange([...shapes, newShape]);
@@ -459,6 +468,7 @@ export function FloorplanCanvas({
         labelVisibility: true,
         lockAspect: false,
         name,
+        rotation: 0,
       };
 
       onShapesChange([...shapes, newShape]);
@@ -719,6 +729,7 @@ function drawHandles(
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
 
+  const rotateHandleDistance = 30;
   const handles: { pos: Point; type: HandleType }[] = [
     { pos: { x: minX, y: minY }, type: 'nw' },
     { pos: { x: (minX + maxX) / 2, y: minY }, type: 'n' },
@@ -729,6 +740,7 @@ function drawHandles(
     { pos: { x: minX, y: maxY }, type: 'sw' },
     { pos: { x: minX, y: (minY + maxY) / 2 }, type: 'w' },
     { pos: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, type: 'center' },
+    { pos: { x: (minX + maxX) / 2, y: minY - rotateHandleDistance }, type: 'rotate' },
   ];
 
   const handleColor = getComputedStyle(document.documentElement).getPropertyValue('--handle').trim();
@@ -747,6 +759,23 @@ function drawHandles(
       ctx.arc(handle.pos.x, handle.pos.y, size, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+    } else if (handle.type === 'rotate') {
+      ctx.beginPath();
+      ctx.arc(handle.pos.x, handle.pos.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = isHovered ? `hsl(${handleHoverColor})` : '#3b82f6';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo((minX + maxX) / 2, minY);
+      ctx.lineTo(handle.pos.x, handle.pos.y);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
     } else if (['n', 'e', 's', 'w'].includes(handle.type)) {
       ctx.beginPath();
       ctx.arc(handle.pos.x, handle.pos.y, size, 0, Math.PI * 2);
@@ -928,6 +957,7 @@ function findHandleAtPoint(
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
 
+  const rotateHandleDistance = 30;
   const handles: { pos: Point; type: HandleType }[] = [
     { pos: { x: minX, y: minY }, type: 'nw' },
     { pos: { x: (minX + maxX) / 2, y: minY }, type: 'n' },
@@ -938,13 +968,15 @@ function findHandleAtPoint(
     { pos: { x: minX, y: maxY }, type: 'sw' },
     { pos: { x: minX, y: (minY + maxY) / 2 }, type: 'w' },
     { pos: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, type: 'center' },
+    { pos: { x: (minX + maxX) / 2, y: minY - rotateHandleDistance }, type: 'rotate' },
   ];
 
   const hitRadius = 8; // pixels
   for (const handle of handles) {
     const dx = canvasPoint.x - handle.pos.x;
     const dy = canvasPoint.y - handle.pos.y;
-    if (Math.sqrt(dx * dx + dy * dy) <= hitRadius) {
+    const radius = handle.type === 'rotate' ? 10 : hitRadius;
+    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
       return handle.type;
     }
   }
@@ -958,133 +990,10 @@ function transformVertices(
   startPoint: Point,
   currentPoint: Point,
   shiftKey: boolean,
-  altKey: boolean
-): Point[] {
-  if (originalVertices.length === 0) return originalVertices;
-
-  const xs = originalVertices.map(v => v.x);
-  const ys = originalVertices.map(v => v.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  const width = maxX - minX;
-  const height = maxY - minY;
-
-  const delta = { x: currentPoint.x - startPoint.x, y: currentPoint.y - startPoint.y };
-
-  // Center handle: translate all vertices
-  if (handle === 'center') {
-    return originalVertices.map(v => ({
-      x: v.x + delta.x,
-      y: v.y + delta.y,
-    }));
-  }
-
-  // Midpoint handles: unidirectional scaling
-  if (handle === 'n' || handle === 's') {
-    const isNorth = handle === 'n';
-    const anchorY = isNorth ? maxY : minY;
-    const newEdgeY = isNorth ? minY + delta.y : maxY + delta.y;
-    const scaleY = (newEdgeY - anchorY) / (isNorth ? (minY - anchorY) : (maxY - anchorY));
-    
-    if (altKey) {
-      // Symmetric scaling about center
-      const newHeight = Math.abs(newEdgeY - centerY) * 2;
-      const scaleY = newHeight / height;
-      return originalVertices.map(v => ({
-        x: v.x,
-        y: centerY + (v.y - centerY) * scaleY,
-      }));
-    } else {
-      return originalVertices.map(v => ({
-        x: v.x,
-        y: anchorY + (v.y - anchorY) * scaleY,
-      }));
-    }
-  }
-
-  if (handle === 'e' || handle === 'w') {
-    const isEast = handle === 'e';
-    const anchorX = isEast ? minX : maxX;
-    const newEdgeX = isEast ? maxX + delta.x : minX + delta.x;
-    const scaleX = (newEdgeX - anchorX) / (isEast ? (maxX - anchorX) : (minX - anchorX));
-    
-    if (altKey) {
-      // Symmetric scaling about center
-      const newWidth = Math.abs(newEdgeX - centerX) * 2;
-      const scaleX = newWidth / width;
-      return originalVertices.map(v => ({
-        x: centerX + (v.x - centerX) * scaleX,
-        y: v.y,
-      }));
-    } else {
-      return originalVertices.map(v => ({
-        x: anchorX + (v.x - anchorX) * scaleX,
-        y: v.y,
-      }));
-    }
-  }
-
-  // Corner handles: shear transformation
-  // For rectangles, move the corner and adjacent edges
-  if (['nw', 'ne', 'se', 'sw'].includes(handle)) {
-    // Determine which corner we're dragging
-    const newVertices = [...originalVertices];
-    
-    if (originalVertices.length === 4) {
-      // Rectangle-specific logic
-      const cornerIndex = 
-        handle === 'nw' ? 0 :
-        handle === 'ne' ? 1 :
-        handle === 'se' ? 2 : 3;
-      
-      const oppositeIndex = (cornerIndex + 2) % 4;
-      const prev = (cornerIndex + 3) % 4;
-      const next = (cornerIndex + 1) % 4;
-      
-      if (shiftKey) {
-        // Constrain aspect ratio
-        const opposite = originalVertices[oppositeIndex];
-        const dx = currentPoint.x - opposite.x;
-        const dy = currentPoint.y - opposite.y;
-        const ratio = width / height;
-        
-        const newWidth = Math.abs(dx);
-        const newHeight = newWidth / ratio;
-        
-        newVertices[cornerIndex] = {
-          x: opposite.x + Math.sign(dx) * newWidth,
-          y: opposite.y + Math.sign(dy) * newHeight,
-        };
-        newVertices[prev] = {
-          x: handle.includes('w') ? newVertices[cornerIndex].x : opposite.x,
-          y: handle.includes('n') ? newVertices[cornerIndex].y : opposite.y,
-        };
-        newVertices[next] = {
-          x: handle.includes('e') ? newVertices[cornerIndex].x : opposite.x,
-          y: handle.includes('s') ? newVertices[cornerIndex].y : opposite.y,
-        };
-      } else {
-        // Free shear
-        newVertices[cornerIndex] = { ...currentPoint };
-        newVertices[prev] = {
-          x: handle.includes('w') ? currentPoint.x : originalVertices[prev].x,
-          y: handle.includes('n') ? currentPoint.y : originalVertices[prev].y,
-        };
-        newVertices[next] = {
-          x: handle.includes('e') ? currentPoint.x : originalVertices[next].x,
-          y: handle.includes('s') ? currentPoint.y : originalVertices[next].y,
-        };
-      }
-    }
-    
-    return newVertices;
-  }
-
-  return originalVertices;
+  altKey: boolean,
+  shape: FloorplanShape
+) {
+  return improvedTransformVertices(originalVertices, handle, startPoint, currentPoint, shiftKey, altKey, shape);
 }
 
 function calculateShapeMeasurement(vertices: Point[]): { label: string; position: Point } | null {

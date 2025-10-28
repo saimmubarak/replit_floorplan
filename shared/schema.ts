@@ -40,6 +40,7 @@ export const FloorplanShape = z.object({
   labelVisibility: z.boolean().default(true),
   lockAspect: z.boolean().default(false),
   name: z.string().optional(),
+  rotation: z.number().default(0),
 });
 export type FloorplanShape = z.infer<typeof FloorplanShape>;
 
