@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { WizardSteps } from "@/components/WizardSteps";
 import { PlotSizePanel } from "@/components/PlotSizePanel";
 import { HouseShapePanel } from "@/components/HouseShapePanel";
+import { AddDoorsPanel } from "@/components/AddDoorsPanel";
 import { FloorplanCanvas } from "@/components/FloorplanCanvas";
 import { PropertiesPanel } from "@/components/PropertiesPanel";
 import { Toolbar } from "@/components/Toolbar";
@@ -15,6 +16,8 @@ import {
   type ViewTransform,
   type ToolType,
   type ExportOptions,
+  type Door,
+  type DoorType,
   A2_WIDTH_FT,
   A2_HEIGHT_FT,
 } from "@shared/schema";
@@ -36,14 +39,17 @@ export default function Floorplan() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('plot-size');
   const [completedSteps, setCompletedSteps] = useState<WizardStep[]>([]);
   const [shapes, setShapes] = useState<FloorplanShape[]>([]);
+  const [doors, setDoors] = useState<Door[]>([]);
   const [viewTransform, setViewTransform] = useState<ViewTransform>(initialViewTransform);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [commandHistory, setCommandHistory] = useState<any[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [doorPlacementMode, setDoorPlacementMode] = useState<{ active: boolean; doorType: DoorType; width: number }>({ active: false, doorType: 'single', width: 3 });
 
   const selectedShape = shapes.find(s => s.id === selectedShapeId) || null;
 
@@ -88,7 +94,7 @@ export default function Floorplan() {
 
   // Wizard Navigation
   const handleNext = useCallback(() => {
-    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'details', 'export-save'];
+    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'details', 'export-save'];
     const currentIndex = stepOrder.indexOf(currentStep);
     
     // Validate current step
@@ -110,7 +116,7 @@ export default function Floorplan() {
   }, [currentStep, completedSteps, shapes.length, toast]);
 
   const handlePrevious = useCallback(() => {
-    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'details', 'export-save'];
+    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'details', 'export-save'];
     const currentIndex = stepOrder.indexOf(currentStep);
     
     if (currentIndex > 0) {
@@ -265,6 +271,36 @@ export default function Floorplan() {
     });
   }, [toast]);
 
+  // Door Management
+  const handleAddDoor = useCallback((doorType: DoorType, width: number) => {
+    setDoorPlacementMode({ active: true, doorType, width });
+    setActiveTool('select');
+    toast({
+      title: "Door Placement Mode",
+      description: "Click on a house wall to place the door",
+    });
+  }, [toast]);
+
+  const handlePlaceDoor = useCallback((door: Door) => {
+    setDoors([...doors, door]);
+    setDoorPlacementMode({ active: false, doorType: 'single', width: 3 });
+    toast({
+      title: "Door Added",
+      description: "Door placed on wall successfully",
+    });
+  }, [doors, toast]);
+
+  const handleUpdateDoor = useCallback((doorId: string, updates: Partial<Door>) => {
+    setDoors(doors.map(d => d.id === doorId ? { ...d, ...updates } : d));
+  }, [doors]);
+
+  const handleDeleteDoor = useCallback((doorId: string) => {
+    setDoors(doors.filter(d => d.id !== doorId));
+    if (selectedDoorId === doorId) {
+      setSelectedDoorId(null);
+    }
+  }, [doors, selectedDoorId]);
+
   // Shape Updates
   const handleUpdateShape = useCallback((updates: Partial<FloorplanShape>) => {
     if (!selectedShapeId) return;
@@ -367,6 +403,7 @@ export default function Floorplan() {
       if (e.key === '3') setActiveTool('rectangle');
       if (e.key === '4') setActiveTool('polygon');
       if (e.key === '5') setActiveTool('freehand');
+      if (e.key === '6') setActiveTool('delete');
       if (e.key === ' ' && !e.repeat) {
         e.preventDefault();
         setActiveTool(prev => prev === 'pan' ? 'select' : 'pan');
@@ -388,11 +425,15 @@ export default function Floorplan() {
         }
       }
 
-      // Delete selected shape
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShapeId) {
+      // Delete selected shape or door
+      if ((e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
-        setShapes(shapes.filter(s => s.id !== selectedShapeId));
-        setSelectedShapeId(null);
+        if (selectedShapeId) {
+          setShapes(shapes.filter(s => s.id !== selectedShapeId));
+          setSelectedShapeId(null);
+        } else if (selectedDoorId) {
+          handleDeleteDoor(selectedDoorId);
+        }
       }
 
       // Toggle grid
@@ -404,11 +445,20 @@ export default function Floorplan() {
       if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
         setSnapEnabled(!snapEnabled);
       }
+
+      // Escape to cancel door placement
+      if (e.key === 'Escape' && doorPlacementMode.active) {
+        setDoorPlacementMode({ active: false, doorType: 'single', width: 3 });
+        toast({
+          title: "Cancelled",
+          description: "Door placement cancelled",
+        });
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedShapeId, shapes, gridEnabled, snapEnabled, handleUndo, handleRedo, handleSave]);
+  }, [selectedShapeId, selectedDoorId, shapes, gridEnabled, snapEnabled, doorPlacementMode.active, handleUndo, handleRedo, handleSave, handleDeleteDoor, toast]);
 
   const getStepPrompt = (): string => {
     switch (currentStep) {
@@ -416,6 +466,8 @@ export default function Floorplan() {
         return 'Guide us on how big your house is. Choose a plot or draw custom.';
       case 'house-shape':
         return 'Tell us about house shape.';
+      case 'add-doors':
+        return 'Add doors to your house walls. Click a wall segment to place doors.';
       case 'details':
         return 'Add walls, paths, and other details to your floorplan';
       case 'export-save':
@@ -472,6 +524,12 @@ export default function Floorplan() {
               onStartCustomDraw={handleStartHouseCustomDraw}
             />
           )}
+          {currentStep === 'add-doors' && (
+            <AddDoorsPanel
+              onAddDoor={handleAddDoor}
+              isPlacementMode={doorPlacementMode.active}
+            />
+          )}
           {currentStep === 'details' && (
             <div className="p-4">
               <h3 className="text-base font-semibold mb-4">Add Details</h3>
@@ -502,15 +560,21 @@ export default function Floorplan() {
           <div className="flex-1 relative">
             <FloorplanCanvas
               shapes={shapes}
+              doors={doors}
               viewTransform={viewTransform}
               selectedShapeId={selectedShapeId}
+              selectedDoorId={selectedDoorId}
               activeTool={activeTool}
               gridEnabled={gridEnabled}
               snapEnabled={snapEnabled}
               currentStep={currentStep}
+              doorPlacementMode={doorPlacementMode}
               onShapesChange={setShapes}
+              onDoorsChange={setDoors}
               onViewTransformChange={setViewTransform}
               onSelectShape={setSelectedShapeId}
+              onSelectDoor={setSelectedDoorId}
+              onPlaceDoor={handlePlaceDoor}
             />
           </div>
 
