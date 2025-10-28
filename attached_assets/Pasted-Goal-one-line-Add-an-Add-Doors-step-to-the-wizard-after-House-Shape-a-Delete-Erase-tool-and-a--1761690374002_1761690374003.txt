@@ -1,0 +1,72 @@
+Goal (one line)
+Add an Add Doors step to the wizard (after House Shape), a Delete/Erase tool, and a translucent Grass skin for plots. Doors are created only on house walls, attach to wall segments, are editable (move/resize), and render as a visual door skin plus a white door line that interrupts the wall stroke.
+
+Wizard flow change
+
+New step order: 1. Plot size → 2. House shape → 3. Add doors → 4. Details (walls, path) → 5. Export/Save.
+
+Step 3 UI: show controls:
+
+Door type: Single / Double
+
+Width: numeric in feet (and optional quick-presets)
+
+Button: Add Door (arms placement mode)
+
+Add Door placement
+
+After clicking Add Door, user clicks a wall segment to place a door. If user clicks off-wall, show tooltip: “Place doors only on walls — click a wall segment” and stay in place mode.
+
+Door aligns to the clicked wall: center snaps to click, door axis perpendicular to wall.
+
+Create two visible parts:
+
+Door skin (architectural symbol scaled to width)
+
+Door line (#ffffff) drawn over the wall stroke across the door width to visually interrupt the brick-red wall.
+
+Multiple doors may be created by repeating Add Door.
+
+Editing doors
+
+Selecting a door shows handles. Handles allow:
+
+Drag along the wall axis only (movement constrained to the wall).
+
+Resize width via numeric input or drag handles (length along wall).
+
+Doors may be dragged across corners and snap to adjacent wall segments or to another house’s wall if within snap threshold.
+
+Doors must stay fully inside the chosen wall segment. If the specified width would extend beyond the segment:
+
+Preferred: clamp center so door fits entirely inside.
+
+Alternative: reject placement and show tooltip: “Door too wide for this wall segment — reduce width or choose another wall.”
+
+Door rotation is automatic (always perpendicular to wall). Optional advanced toggle: “free rotate”.
+
+Selection & interaction
+
+Clicking the door selects it. Clicking wall selects wall. Provide predictable click precedence or a modifier for “select underlying”.
+
+Door skin is non-interactive by default (click selects door object); provide optional toggle to edit skin separately.
+
+Door creation, move, resize, delete are undoable/redoable.
+
+Delete / Erase tool
+
+Add a Delete/Erase tool button (mode). When active, clicking an object (house, door, roof skin, grass skin) deletes it. Prefer undo instead of confirmation.
+
+Deleting a house cascades delete of its attached doors and skins (default behavior).
+
+Keyboard shortcut: Del / Backspace removes selected item.
+
+Grass plot skin
+
+When a plot is created, add a translucent green fill (grass) that matches plot boundary.
+
+Grass sits behind all other layers (houses, roofs, doors) and updates when the plot boundary edits.
+
+Default opacity ~0.25 and a per-plot Show/Hide toggle.
+
+Export must include grass under other layers.
