@@ -10,8 +10,9 @@ interface StepConfig {
 const steps: StepConfig[] = [
   { id: 'plot-size', label: 'Plot Size', number: 1 },
   { id: 'house-shape', label: 'House Shape', number: 2 },
-  { id: 'details', label: 'Details', number: 3 },
-  { id: 'export-save', label: 'Export/Save', number: 4 },
+  { id: 'add-doors', label: 'Add Doors', number: 3 },
+  { id: 'details', label: 'Details', number: 4 },
+  { id: 'export-save', label: 'Export/Save', number: 5 },
 ];
 
 interface WizardStepsProps {

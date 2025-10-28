@@ -7,6 +7,7 @@ import {
   Pentagon,
   Pencil,
   Hand,
+  Eraser,
   ZoomIn,
   ZoomOut,
   Grid3x3,
@@ -46,6 +47,7 @@ const tools = [
   { type: 'rectangle' as ToolType, icon: Square, label: 'Rectangle (3)', shortcut: '3' },
   { type: 'polygon' as ToolType, icon: Pentagon, label: 'Polygon (4)', shortcut: '4' },
   { type: 'freehand' as ToolType, icon: Pencil, label: 'Freehand (5)', shortcut: '5' },
+  { type: 'delete' as ToolType, icon: Eraser, label: 'Delete (6)', shortcut: '6' },
   { type: 'pan' as ToolType, icon: Hand, label: 'Pan (Space)', shortcut: 'Space' },
 ];
 

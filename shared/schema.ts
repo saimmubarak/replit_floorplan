@@ -47,6 +47,20 @@ export type FloorplanShape = z.infer<typeof FloorplanShape>;
 export const insertShapeSchema = FloorplanShape.omit({ id: true });
 export type InsertShape = z.infer<typeof insertShapeSchema>;
 
+export const DoorType = z.enum(['single', 'double']);
+export type DoorType = z.infer<typeof DoorType>;
+
+export const Door = z.object({
+  id: z.string(),
+  type: DoorType,
+  position: Point,
+  width: z.number(),
+  wallShapeId: z.string(),
+  wallSegmentIndex: z.number(),
+  rotation: z.number().default(0),
+});
+export type Door = z.infer<typeof Door>;
+
 // ============================================
 // WIZARD & PROJECT TYPES
 // ============================================
@@ -54,6 +68,7 @@ export type InsertShape = z.infer<typeof insertShapeSchema>;
 export const WizardStep = z.enum([
   'plot-size',
   'house-shape',
+  'add-doors',
   'details',
   'export-save',
 ]);
@@ -64,6 +79,7 @@ export const FloorplanProject = z.object({
   name: z.string(),
   currentStep: WizardStep,
   shapes: z.array(FloorplanShape),
+  doors: z.array(Door).default([]),
   viewTransform: ViewTransform,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -88,6 +104,7 @@ export const ToolType = z.enum([
   'polygon',
   'freehand',
   'pan',
+  'delete',
 ]);
 export type ToolType = z.infer<typeof ToolType>;
 
@@ -199,6 +216,7 @@ export const PRESET_PLOTS = {
 export const STEP_COLORS = {
   'plot-size': '#1e3a8a',  // Dark blue for plot boundary
   'house-shape': '#9a3412', // Brick red for house
+  'add-doors': '#4b5563',   // Gray for doors
   'details': '#000000',     // Black for details
   'export-save': '#000000', // Black for export
 } as const;
