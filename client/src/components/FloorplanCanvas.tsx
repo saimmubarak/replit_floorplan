@@ -632,6 +632,21 @@ function drawShape(
   if (shape.vertices.length < 2) return;
 
   const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
+  
+  // Calculate center in canvas coordinates
+  const xs = canvasVertices.map(v => v.x);
+  const ys = canvasVertices.map(v => v.y);
+  const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+  ctx.save();
+  
+  // Apply rotation if present
+  if (shape.rotation) {
+    ctx.translate(centerX, centerY);
+    ctx.rotate(shape.rotation * Math.PI / 180);
+    ctx.translate(-centerX, -centerY);
+  }
 
   ctx.strokeStyle = shape.strokeColor;
   ctx.lineWidth = 2;
@@ -661,6 +676,8 @@ function drawShape(
     ctx.lineWidth = 3;
     ctx.stroke();
   }
+  
+  ctx.restore();
 }
 
 function drawTemporaryShape(
@@ -728,6 +745,17 @@ function drawHandles(
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  ctx.save();
+  
+  // Apply rotation if present
+  if (shape.rotation) {
+    ctx.translate(centerX, centerY);
+    ctx.rotate(shape.rotation * Math.PI / 180);
+    ctx.translate(-centerX, -centerY);
+  }
 
   const rotateHandleDistance = 30;
   const handles: { pos: Point; type: HandleType }[] = [
@@ -786,6 +814,8 @@ function drawHandles(
       ctx.strokeRect(handle.pos.x - size, handle.pos.y - size, size * 2, size * 2);
     }
   });
+  
+  ctx.restore();
 }
 
 function findShapeAtPoint(shapes: FloorplanShape[], point: Point): FloorplanShape | null {

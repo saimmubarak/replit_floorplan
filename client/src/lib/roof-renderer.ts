@@ -363,6 +363,21 @@ export function drawRoof(
   ctx.save();
   ctx.globalAlpha = opacity;
   
+  // Apply rotation if present
+  if (shape.rotation) {
+    const canvasVertices = shape.vertices.map(v => 
+      worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height)
+    );
+    const xs = canvasVertices.map(v => v.x);
+    const ys = canvasVertices.map(v => v.y);
+    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    
+    ctx.translate(centerX, centerY);
+    ctx.rotate(shape.rotation * Math.PI / 180);
+    ctx.translate(-centerX, -centerY);
+  }
+  
   for (const section of sections) {
     drawRoofSection(ctx, section, viewTransform, canvasSize);
   }
