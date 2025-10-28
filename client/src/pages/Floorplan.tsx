@@ -62,6 +62,7 @@ export default function Floorplan() {
             name: 'New Floorplan',
             currentStep: 'plot-size',
             shapes: [],
+            doors: [],
             viewTransform: initialViewTransform,
           });
           setProjectId(result.id);
@@ -74,7 +75,7 @@ export default function Floorplan() {
     initProject();
   }, []);
 
-  // Auto-save when shapes or view transform changes
+  // Auto-save when shapes, doors, or view transform changes
   useEffect(() => {
     if (projectId) {
       const timeoutId = setTimeout(() => {
@@ -83,6 +84,7 @@ export default function Floorplan() {
           updates: {
             currentStep,
             shapes,
+            doors,
             viewTransform,
           },
         });
@@ -90,7 +92,7 @@ export default function Floorplan() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [shapes, viewTransform, currentStep, projectId]);
+  }, [shapes, doors, viewTransform, currentStep, projectId]);
 
   // Wizard Navigation
   const handleNext = useCallback(() => {
