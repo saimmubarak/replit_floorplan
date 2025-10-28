@@ -6,6 +6,8 @@ import {
   type ToolType,
   type HandleType,
   type WizardStep,
+  type Door,
+  type DoorType,
   DEFAULT_EDITING_DPI,
   A2_WIDTH_FT,
   A2_HEIGHT_FT,
@@ -23,32 +25,54 @@ import {
 } from "@/lib/coordinate-math";
 import { drawRoof } from "@/lib/roof-renderer";
 import { improvedTransformVertices } from "@/lib/improved-transform";
+import {
+  findWallSegmentAtPoint,
+  drawDoorSkin,
+  drawDoorLine,
+  drawDoorHandles,
+  findDoorAtPoint,
+  findDoorHandle,
+} from "@/lib/door-renderer";
+import { useToast } from "@/hooks/use-toast";
 
 interface FloorplanCanvasProps {
   shapes: FloorplanShape[];
+  doors: Door[];
   viewTransform: ViewTransform;
   selectedShapeId: string | null;
+  selectedDoorId: string | null;
   activeTool: ToolType;
   gridEnabled: boolean;
   snapEnabled: boolean;
   currentStep: WizardStep;
+  doorPlacementMode: { active: boolean; doorType: DoorType; width: number };
   onShapesChange: (shapes: FloorplanShape[]) => void;
+  onDoorsChange: (doors: Door[]) => void;
   onViewTransformChange: (transform: ViewTransform) => void;
   onSelectShape: (id: string | null) => void;
+  onSelectDoor: (id: string | null) => void;
+  onPlaceDoor: (door: Door) => void;
 }
 
 export function FloorplanCanvas({
   shapes,
+  doors,
   viewTransform,
   selectedShapeId,
+  selectedDoorId,
   activeTool,
   gridEnabled,
   snapEnabled,
   currentStep,
+  doorPlacementMode,
   onShapesChange,
+  onDoorsChange,
   onViewTransformChange,
   onSelectShape,
+  onSelectDoor,
+  onPlaceDoor,
 }: FloorplanCanvasProps) {
+  const { toast } = useToast();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
@@ -71,6 +95,12 @@ export function FloorplanCanvas({
   const [mousePosition, setMousePosition] = useState<Point | null>(null);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
+  const [hoveredDoorId, setHoveredDoorId] = useState<string | null>(null);
+  const [doorDragState, setDoorDragState] = useState<{
+    doorId: string;
+    handle: 'start' | 'end' | 'center' | null;
+    startPoint: Point;
+  } | null>(null);
 
   // Update canvas size on resize
   useEffect(() => {
@@ -118,18 +148,53 @@ export function FloorplanCanvas({
       drawGrid(ctx, viewTransform, canvasSize, sheetX, sheetY, sheetWidth, sheetHeight);
     }
 
+    // Draw grass skin for plot shapes (underneath everything)
+    shapes.forEach(shape => {
+      if (shape.layer === 'plot') {
+        drawGrassSkin(ctx, shape, viewTransform, canvasSize);
+      }
+    });
+
     // Draw all shapes with roofs
     shapes.forEach(shape => {
       // Draw roof skin first (underneath the shape outline)
       drawRoof(ctx, shape, viewTransform, canvasSize);
       
-      // Then draw the shape outline
+      // Then draw the shape outline (but we'll draw door lines over walls later)
       const isHovered = shape.id === hoveredShapeId && activeTool === 'select' && !selectedShapeId;
       drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId, canvasSize, isHovered);
       
       // Finally draw measurements on top
       if (shape.labelVisibility) {
         drawMeasurements(ctx, shape, viewTransform, canvasSize);
+      }
+    });
+
+    // Draw door lines (white lines that interrupt walls)
+    doors.forEach(door => {
+      const wallShape = shapes.find(s => s.id === door.wallShapeId);
+      if (wallShape) {
+        drawDoorLine(ctx, door, wallShape, viewTransform, canvasSize);
+      }
+    });
+
+    // Draw door skins (on top of lines)
+    doors.forEach(door => {
+      drawDoorSkin(ctx, door, viewTransform, canvasSize);
+      if (door.id === selectedDoorId) {
+        drawDoorHandles(ctx, door, viewTransform, canvasSize);
+      }
+      const isHovered = door.id === hoveredDoorId && activeTool === 'select' && !selectedDoorId;
+      if (isHovered) {
+        const pos = worldToCanvas(door.position, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
+        ctx.save();
+        const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+        ctx.strokeStyle = `hsl(${primaryColor} / 0.6)`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(pos.x - (door.width * viewTransform.zoom) / 2 - 5, pos.y - 10, door.width * viewTransform.zoom + 10, 20);
+        ctx.setLineDash([]);
+        ctx.restore();
       }
     });
 
@@ -172,7 +237,7 @@ export function FloorplanCanvas({
       ctx.fillStyle = '#ffffff';
       ctx.fillText(liveMeasurement.label, canvasPos.x, canvasPos.y);
     }
-  }, [shapes, viewTransform, selectedShapeId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement, previewPoint, hoveredShapeId]);
+  }, [shapes, doors, viewTransform, selectedShapeId, selectedDoorId, gridEnabled, isDrawing, currentPoints, activeTool, snapPoint, hoveredHandle, canvasSize, liveMeasurement, previewPoint, hoveredShapeId, hoveredDoorId]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -189,7 +254,83 @@ export function FloorplanCanvas({
       return;
     }
 
+    // Door placement mode
+    if (doorPlacementMode.active) {
+      const wallResult = findWallSegmentAtPoint(shapes, worldPoint, 1.0);
+      if (wallResult) {
+        const newDoor: Door = {
+          id: crypto.randomUUID(),
+          type: doorPlacementMode.doorType,
+          position: wallResult.closestPoint,
+          width: doorPlacementMode.width,
+          wallShapeId: wallResult.shape.id,
+          wallSegmentIndex: wallResult.segmentIndex,
+          rotation: wallResult.rotation,
+        };
+        onPlaceDoor(newDoor);
+      } else {
+        toast({
+          title: "Invalid Placement",
+          description: "Place doors only on walls — click a wall segment",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
+    // Delete tool
+    if (activeTool === 'delete') {
+      const clickedDoor = findDoorAtPoint(doors, worldPoint);
+      if (clickedDoor) {
+        onDoorsChange(doors.filter(d => d.id !== clickedDoor.id));
+        toast({
+          title: "Door Deleted",
+          description: "Door removed successfully",
+        });
+      } else {
+        const clickedShape = findShapeAtPoint(shapes, worldPoint);
+        if (clickedShape) {
+          onShapesChange(shapes.filter(s => s.id !== clickedShape.id));
+          onSelectShape(null);
+          toast({
+            title: "Shape Deleted",
+            description: "Shape removed successfully",
+          });
+        }
+      }
+      return;
+    }
+
     if (activeTool === 'select') {
+      // Check if clicking on a door handle
+      if (selectedDoorId) {
+        const door = doors.find(d => d.id === selectedDoorId);
+        if (door) {
+          const handle = findDoorHandle(door, worldPoint, viewTransform);
+          if (handle) {
+            setDoorDragState({
+              doorId: door.id,
+              handle,
+              startPoint: worldPoint,
+            });
+            return;
+          }
+        }
+      }
+
+      // Check if clicking on a door
+      const clickedDoor = findDoorAtPoint(doors, worldPoint);
+      if (clickedDoor) {
+        onSelectDoor(clickedDoor.id);
+        onSelectShape(null);
+        setDoorDragState({
+          doorId: clickedDoor.id,
+          handle: 'center',
+          startPoint: worldPoint,
+        });
+        return;
+      }
+
       // Check if clicking on a handle of the selected shape
       if (selectedShapeId) {
         const shape = shapes.find(s => s.id === selectedShapeId);
@@ -212,7 +353,13 @@ export function FloorplanCanvas({
       
       // Check if clicking on a shape
       const clickedShape = findShapeAtPoint(shapes, worldPoint);
-      onSelectShape(clickedShape?.id || null);
+      if (clickedShape) {
+        onSelectShape(clickedShape.id);
+        onSelectDoor(null);
+      } else {
+        onSelectShape(null);
+        onSelectDoor(null);
+      }
     } else {
       // Drawing mode (rectangle, polygon, line, freehand)
       const point = snapEnabled ? snapToGrid(worldPoint, GRID_SPACING_FT) : worldPoint;
@@ -226,7 +373,7 @@ export function FloorplanCanvas({
         setCurrentPoints([point]);
       }
     }
-  }, [activeTool, viewTransform, shapes, snapEnabled, onSelectShape, selectedShapeId, canvasSize, spacePressed, isDrawing]);
+  }, [activeTool, viewTransform, shapes, doors, snapEnabled, onSelectShape, onSelectDoor, selectedShapeId, selectedDoorId, canvasSize, spacePressed, isDrawing, doorPlacementMode, onPlaceDoor, onDoorsChange, onShapesChange, toast]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -251,6 +398,40 @@ export function FloorplanCanvas({
       });
       
       setPanStart(canvasPoint);
+      return;
+    }
+
+    // Handle door dragging
+    if (doorDragState) {
+      const door = doors.find(d => d.id === doorDragState.doorId);
+      const wallShape = door ? shapes.find(s => s.id === door.wallShapeId) : null;
+      if (door && wallShape) {
+        if (doorDragState.handle === 'center') {
+          const wallResult = findWallSegmentAtPoint(shapes, worldPoint, 2.0);
+          if (wallResult && wallResult.shape.id === door.wallShapeId) {
+            const updatedDoors = doors.map(d =>
+              d.id === door.id ? { ...d, position: wallResult.closestPoint } : d
+            );
+            onDoorsChange(updatedDoors);
+          }
+        } else if (doorDragState.handle === 'start' || doorDragState.handle === 'end') {
+          const v1 = wallShape.vertices[door.wallSegmentIndex];
+          const v2 = wallShape.vertices[(door.wallSegmentIndex + 1) % wallShape.vertices.length];
+          const wallLength = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
+          
+          const dx = worldPoint.x - doorDragState.startPoint.x;
+          const dy = worldPoint.y - doorDragState.startPoint.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const newWidth = doorDragState.handle === 'end' 
+            ? Math.max(2, Math.min(wallLength, door.width + dist)) 
+            : Math.max(2, Math.min(wallLength, door.width - dist));
+          
+          const updatedDoors = doors.map(d =>
+            d.id === door.id ? { ...d, width: newWidth } : d
+          );
+          onDoorsChange(updatedDoors);
+        }
+      }
       return;
     }
 
@@ -304,10 +485,17 @@ export function FloorplanCanvas({
       }
     }
 
-    // Update hovered shape (for visual feedback when hovering over unselected shapes)
-    if (activeTool === 'select' && !dragState && !isPanning) {
-      const hoveredShape = findShapeAtPoint(shapes, worldPoint);
-      setHoveredShapeId(hoveredShape?.id || null);
+    // Update hovered shape and door (for visual feedback when hovering over unselected elements)
+    if (activeTool === 'select' && !dragState && !doorDragState && !isPanning) {
+      const hoveredDoor = findDoorAtPoint(doors, worldPoint);
+      setHoveredDoorId(hoveredDoor?.id || null);
+      
+      if (!hoveredDoor) {
+        const hoveredShape = findShapeAtPoint(shapes, worldPoint);
+        setHoveredShapeId(hoveredShape?.id || null);
+      } else {
+        setHoveredShapeId(null);
+      }
     }
 
     if (isDrawing) {
@@ -329,13 +517,19 @@ export function FloorplanCanvas({
         setSnapPoint(snap);
       }
     }
-  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes, dragState, selectedShapeId, onShapesChange, canvasSize, isPanning, panStart, onViewTransformChange]);
+  }, [isDrawing, activeTool, viewTransform, snapEnabled, shapes, doors, dragState, doorDragState, selectedShapeId, onShapesChange, onDoorsChange, canvasSize, isPanning, panStart, onViewTransformChange]);
 
   const handleMouseUp = useCallback(() => {
     // Clear pan state
     if (isPanning) {
       setIsPanning(false);
       setPanStart(null);
+      return;
+    }
+
+    // Clear door drag state
+    if (doorDragState) {
+      setDoorDragState(null);
       return;
     }
 
@@ -381,7 +575,7 @@ export function FloorplanCanvas({
     setCurrentPoints([]);
     setSnapPoint(null);
     setPreviewPoint(null);
-  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState, isPanning, currentStep]);
+  }, [isDrawing, currentPoints, activeTool, shapes, onShapesChange, onSelectShape, dragState, doorDragState, isPanning, currentStep]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -618,6 +812,32 @@ function drawGrid(
     ctx.stroke();
   }
 
+  ctx.restore();
+}
+
+function drawGrassSkin(
+  ctx: CanvasRenderingContext2D,
+  shape: FloorplanShape,
+  viewTransform: ViewTransform,
+  canvasSize: { width: number; height: number }
+) {
+  if (shape.vertices.length < 3) return;
+  
+  const canvasVertices = shape.vertices.map(v => worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height));
+  
+  ctx.save();
+  
+  ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
+  ctx.beginPath();
+  ctx.moveTo(canvasVertices[0].x, canvasVertices[0].y);
+  
+  for (let i = 1; i < canvasVertices.length; i++) {
+    ctx.lineTo(canvasVertices[i].x, canvasVertices[i].y);
+  }
+  
+  ctx.closePath();
+  ctx.fill();
+  
   ctx.restore();
 }
 
