@@ -21,6 +21,7 @@ import {
   snapToGrid,
   findSnapTarget,
 } from "@/lib/coordinate-math";
+import { drawRoof } from "@/lib/roof-renderer";
 
 interface FloorplanCanvasProps {
   shapes: FloorplanShape[];
@@ -116,10 +117,16 @@ export function FloorplanCanvas({
       drawGrid(ctx, viewTransform, canvasSize, sheetX, sheetY, sheetWidth, sheetHeight);
     }
 
-    // Draw all shapes
+    // Draw all shapes with roofs
     shapes.forEach(shape => {
+      // Draw roof skin first (underneath the shape outline)
+      drawRoof(ctx, shape, viewTransform, canvasSize);
+      
+      // Then draw the shape outline
       const isHovered = shape.id === hoveredShapeId && activeTool === 'select' && !selectedShapeId;
       drawShape(ctx, shape, viewTransform, shape.id === selectedShapeId, canvasSize, isHovered);
+      
+      // Finally draw measurements on top
       if (shape.labelVisibility) {
         drawMeasurements(ctx, shape, viewTransform, canvasSize);
       }
