@@ -1,10 +1,6 @@
 import { Point, FloorplanShape, ViewTransform, DEFAULT_EDITING_DPI } from "@shared/schema";
 import { worldToCanvas, getBounds } from "./coordinate-math";
 
-// ============================================
-// ROOF GEOMETRY DETECTION
-// ============================================
-
 interface RoofSection {
   bounds: { min: Point; max: Point };
   center: Point;
@@ -12,224 +8,196 @@ interface RoofSection {
   height: number;
 }
 
-/**
- * Detect if a shape is rectangular (4 vertices forming a rectangle)
- */
-function isRectangular(vertices: Point[]): boolean {
-  if (vertices.length !== 4) return false;
-  
-  // Check if we have 4 right angles
-  const angles: number[] = [];
-  for (let i = 0; i < 4; i++) {
-    const prev = vertices[(i - 1 + 4) % 4];
-    const curr = vertices[i];
-    const next = vertices[(i + 1) % 4];
-    
-    const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
-    const v2 = { x: next.x - curr.x, y: next.y - curr.y };
-    
-    const dot = v1.x * v2.x + v1.y * v2.y;
-    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-    
-    const angle = Math.acos(dot / (mag1 * mag2));
-    angles.push(angle);
-  }
-  
-  // All angles should be close to 90 degrees (π/2)
-  return angles.every(angle => Math.abs(angle - Math.PI / 2) < 0.1);
+interface Rectangle {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }
 
-/**
- * Detect if a polygon is L-shaped (can be decomposed into 2 rectangles)
- */
-function isLShaped(vertices: Point[]): boolean {
-  // L-shapes typically have 6 vertices
-  if (vertices.length !== 6) return false;
-  
-  // Check if vertices form an L-shape by counting corners
-  let rightAngles = 0;
-  let reflex = 0;
+function isRectilinear(vertices: Point[]): boolean {
+  if (vertices.length < 4) return false;
   
   for (let i = 0; i < vertices.length; i++) {
     const prev = vertices[(i - 1 + vertices.length) % vertices.length];
     const curr = vertices[i];
     const next = vertices[(i + 1) % vertices.length];
     
-    const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+    const v1 = { x: curr.x - prev.x, y: curr.y - prev.y };
     const v2 = { x: next.x - curr.x, y: next.y - curr.y };
     
-    const cross = v1.x * v2.y - v1.y * v2.x;
-    const dot = v1.x * v2.x + v1.y * v2.y;
-    const angle = Math.atan2(cross, dot);
+    const isHorizontal1 = Math.abs(v1.y) < 0.01;
+    const isVertical1 = Math.abs(v1.x) < 0.01;
+    const isHorizontal2 = Math.abs(v2.y) < 0.01;
+    const isVertical2 = Math.abs(v2.x) < 0.01;
     
-    const absAngle = Math.abs(angle);
-    if (Math.abs(absAngle - Math.PI / 2) < 0.2) {
-      rightAngles++;
-    } else if (absAngle > Math.PI / 2) {
-      reflex++;
+    if (!((isHorizontal1 || isVertical1) && (isHorizontal2 || isVertical2))) {
+      return false;
     }
   }
   
-  // L-shapes have 6 right angles (4 external, 2 internal)
-  return rightAngles >= 4 && reflex <= 2;
+  return true;
 }
 
-/**
- * Decompose L-shaped polygon into 2 rectangular sections
- */
-function decomposeL(vertices: Point[]): RoofSection[] {
-  if (vertices.length !== 6) return [];
+function decomposeRectilinearPolygon(vertices: Point[]): Rectangle[] {
+  if (vertices.length < 4) return [];
   
-  // Find the bounding box
+  if (!isRectilinear(vertices)) {
+    const bounds = getBounds(vertices);
+    return [{
+      minX: bounds.min.x,
+      minY: bounds.min.y,
+      maxX: bounds.max.x,
+      maxY: bounds.max.y,
+    }];
+  }
+  
+  const rectangles: Rectangle[] = [];
   const bounds = getBounds(vertices);
-  const width = bounds.max.x - bounds.min.x;
-  const height = bounds.max.y - bounds.min.y;
   
-  // Sort vertices by x and y to find the pattern
-  const sortedByX = [...vertices].sort((a, b) => a.x - b.x);
-  const sortedByY = [...vertices].sort((a, b) => a.y - b.y);
+  const xCoords = Array.from(new Set(vertices.map(v => v.x))).sort((a, b) => a - b);
+  const yCoords = Array.from(new Set(vertices.map(v => v.y))).sort((a, b) => a - b);
   
-  // Determine if it's a horizontal or vertical L
-  const xGroups = groupByCoordinate(sortedByX, 'x');
-  const yGroups = groupByCoordinate(sortedByY, 'y');
+  if (xCoords.length < 2 || yCoords.length < 2) {
+    return [{
+      minX: bounds.min.x,
+      minY: bounds.min.y,
+      maxX: bounds.max.x,
+      maxY: bounds.max.y,
+    }];
+  }
   
-  // Find the notch (where the L shape cuts in)
-  // For a proper L-shape, we should have 3 unique X values and 3 unique Y values
-  if (xGroups.length === 3 && yGroups.length === 3) {
-    const midX = xGroups[1][0].x;
-    const midY = yGroups[1][0].y;
-    
-    // Determine L orientation by checking which quadrant is missing
-    const hasTopLeft = vertices.some(v => v.x < midX && v.y < midY);
-    const hasTopRight = vertices.some(v => v.x > midX && v.y < midY);
-    const hasBottomLeft = vertices.some(v => v.x < midX && v.y > midY);
-    const hasBottomRight = vertices.some(v => v.x > midX && v.y > midY);
-    
-    // Create two rectangular sections based on orientation
-    if (!hasTopRight) {
-      // L shape: horizontal bar on bottom, vertical bar on left
-      return [
-        createSection(bounds.min.x, midY, midX, bounds.max.y), // Vertical part
-        createSection(bounds.min.x, midY, bounds.max.x, bounds.max.y), // Horizontal part
-      ];
-    } else if (!hasTopLeft) {
-      // Mirror L: horizontal bar on bottom, vertical bar on right
-      return [
-        createSection(midX, midY, bounds.max.x, bounds.max.y), // Vertical part
-        createSection(bounds.min.x, midY, bounds.max.x, bounds.max.y), // Horizontal part
-      ];
-    } else if (!hasBottomRight) {
-      // Inverted L: horizontal bar on top, vertical bar on left
-      return [
-        createSection(bounds.min.x, bounds.min.y, midX, midY), // Vertical part
-        createSection(bounds.min.x, bounds.min.y, bounds.max.x, midY), // Horizontal part
-      ];
-    } else if (!hasBottomLeft) {
-      // Inverted Mirror L: horizontal bar on top, vertical bar on right
-      return [
-        createSection(midX, bounds.min.y, bounds.max.x, midY), // Vertical part
-        createSection(bounds.min.x, bounds.min.y, bounds.max.x, midY), // Horizontal part
-      ];
+  for (let i = 0; i < xCoords.length - 1; i++) {
+    for (let j = 0; j < yCoords.length - 1; j++) {
+      const rect: Rectangle = {
+        minX: xCoords[i],
+        minY: yCoords[j],
+        maxX: xCoords[i + 1],
+        maxY: yCoords[j + 1],
+      };
+      
+      const rectCenter = {
+        x: (rect.minX + rect.maxX) / 2,
+        y: (rect.minY + rect.maxY) / 2,
+      };
+      
+      if (isPointInPolygon(rectCenter, vertices)) {
+        rectangles.push(rect);
+      }
     }
   }
   
-  // Fallback: split by longer dimension
-  if (width > height) {
-    const midX = bounds.min.x + width / 2;
-    return [
-      createSection(bounds.min.x, bounds.min.y, midX, bounds.max.y),
-      createSection(midX, bounds.min.y, bounds.max.x, bounds.max.y),
-    ];
-  } else {
-    const midY = bounds.min.y + height / 2;
-    return [
-      createSection(bounds.min.x, bounds.min.y, bounds.max.x, midY),
-      createSection(bounds.min.x, midY, bounds.max.x, bounds.max.y),
-    ];
-  }
+  return mergeAdjacentRectangles(rectangles);
 }
 
-function groupByCoordinate(points: Point[], coord: 'x' | 'y', tolerance = 0.5): Point[][] {
-  const groups: Point[][] = [];
+function isPointInPolygon(point: Point, vertices: Point[]): boolean {
+  let inside = false;
   
-  for (const point of points) {
-    const value = point[coord];
-    let foundGroup = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x, yi = vertices[i].y;
+    const xj = vertices[j].x, yj = vertices[j].y;
     
-    for (const group of groups) {
-      if (Math.abs(group[0][coord] - value) < tolerance) {
-        group.push(point);
-        foundGroup = true;
-        break;
+    const intersect = ((yi > point.y) !== (yj > point.y))
+      && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+    
+    if (intersect) inside = !inside;
+  }
+  
+  return inside;
+}
+
+function mergeAdjacentRectangles(rects: Rectangle[]): Rectangle[] {
+  if (rects.length <= 1) return rects;
+  
+  const merged: Rectangle[] = [];
+  const used = new Set<number>();
+  
+  for (let i = 0; i < rects.length; i++) {
+    if (used.has(i)) continue;
+    
+    let current = { ...rects[i] };
+    let didMerge = true;
+    
+    while (didMerge) {
+      didMerge = false;
+      
+      for (let j = 0; j < rects.length; j++) {
+        if (i === j || used.has(j)) continue;
+        
+        const other = rects[j];
+        
+        if (Math.abs(current.minY - other.minY) < 0.01 && 
+            Math.abs(current.maxY - other.maxY) < 0.01) {
+          if (Math.abs(current.maxX - other.minX) < 0.01) {
+            current.maxX = other.maxX;
+            used.add(j);
+            didMerge = true;
+          } else if (Math.abs(current.minX - other.maxX) < 0.01) {
+            current.minX = other.minX;
+            used.add(j);
+            didMerge = true;
+          }
+        }
+        
+        if (Math.abs(current.minX - other.minX) < 0.01 && 
+            Math.abs(current.maxX - other.maxX) < 0.01) {
+          if (Math.abs(current.maxY - other.minY) < 0.01) {
+            current.maxY = other.maxY;
+            used.add(j);
+            didMerge = true;
+          } else if (Math.abs(current.minY - other.maxY) < 0.01) {
+            current.minY = other.minY;
+            used.add(j);
+            didMerge = true;
+          }
+        }
       }
     }
     
-    if (!foundGroup) {
-      groups.push([point]);
-    }
+    merged.push(current);
+    used.add(i);
   }
   
-  return groups;
+  return merged;
 }
 
-function createSection(minX: number, minY: number, maxX: number, maxY: number): RoofSection {
-  const width = maxX - minX;
-  const height = maxY - minY;
+function createSection(rect: Rectangle): RoofSection {
+  const width = rect.maxX - rect.minX;
+  const height = rect.maxY - rect.minY;
   return {
     bounds: {
-      min: { x: minX, y: minY },
-      max: { x: maxX, y: maxY },
+      min: { x: rect.minX, y: rect.minY },
+      max: { x: rect.maxX, y: rect.maxY },
     },
     center: {
-      x: minX + width / 2,
-      y: minY + height / 2,
+      x: rect.minX + width / 2,
+      y: rect.minY + height / 2,
     },
     width,
     height,
   };
 }
 
-/**
- * Detect roof sections for any shape
- */
 export function detectRoofSections(shape: FloorplanShape): RoofSection[] {
   if (shape.type !== 'rectangle' && shape.type !== 'polygon') {
-    return []; // Only render roofs on closed shapes
+    return [];
   }
   
   if (shape.vertices.length < 3) {
     return [];
   }
   
-  // Rectangle case
-  if (isRectangular(shape.vertices)) {
-    const bounds = getBounds(shape.vertices);
-    return [createSection(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y)];
-  }
-  
-  // L-shape case
-  if (isLShaped(shape.vertices)) {
-    return decomposeL(shape.vertices);
-  }
-  
-  // Fallback for irregular polygons: use bounding box
-  const bounds = getBounds(shape.vertices);
-  return [createSection(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y)];
+  const rectangles = decomposeRectilinearPolygon(shape.vertices);
+  return rectangles.map(rect => createSection(rect));
 }
 
-// ============================================
-// ROOF RENDERING
-// ============================================
+const ROOF_TILE_BASE = '#c2410c';
+const ROOF_TILE_LIGHT = '#ea580c';
+const ROOF_TILE_DARK = '#9a3412';
+const ROOF_SHADOW = '#7c2d12';
+const ROOF_RIDGE = '#451a03';
+const ROOF_RIDGE_OFFSET = 0.35;
 
-const ROOF_COLOR_LIGHT = '#b91c1c'; // Red 700
-const ROOF_COLOR_DARK = '#7f1d1d';  // Red 900
-const ROOF_COLOR_SIDE = '#991b1b';  // Red 800
-const ROOF_RIDGE_OFFSET = 0.3; // Proportion of width for ridge offset (creates depth)
-
-/**
- * Draw a slanted roof on a rectangular section using 4 triangular faces
- */
 function drawRoofSection(
   ctx: CanvasRenderingContext2D,
   section: RoofSection,
@@ -238,11 +206,9 @@ function drawRoofSection(
 ) {
   const { bounds, center, width, height } = section;
   
-  // Calculate ridge line (center line running along the longer dimension)
   const isWider = width > height;
   const ridgeOffset = (isWider ? height : width) * ROOF_RIDGE_OFFSET;
   
-  // Convert to canvas coordinates
   const topLeft = worldToCanvas(bounds.min, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
   const topRight = worldToCanvas({ x: bounds.max.x, y: bounds.min.y }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
   const bottomLeft = worldToCanvas({ x: bounds.min.x, y: bounds.max.y }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
@@ -251,14 +217,11 @@ function drawRoofSection(
   let ridge1: Point, ridge2: Point;
   
   if (isWider) {
-    // Ridge runs horizontally (left to right)
     const ridgeYWorld = center.y - ridgeOffset;
     ridge1 = worldToCanvas({ x: bounds.min.x, y: ridgeYWorld }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     ridge2 = worldToCanvas({ x: bounds.max.x, y: ridgeYWorld }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     
-    // Draw 4 triangular faces
-    // Top face (front, lighter)
-    ctx.fillStyle = ROOF_COLOR_LIGHT;
+    ctx.fillStyle = ROOF_TILE_LIGHT;
     ctx.beginPath();
     ctx.moveTo(topLeft.x, topLeft.y);
     ctx.lineTo(topRight.x, topRight.y);
@@ -267,8 +230,9 @@ function drawRoofSection(
     ctx.closePath();
     ctx.fill();
     
-    // Bottom face (back, darker)
-    ctx.fillStyle = ROOF_COLOR_DARK;
+    drawRoofTiles(ctx, topLeft, topRight, ridge2, ridge1, true);
+    
+    ctx.fillStyle = ROOF_TILE_DARK;
     ctx.beginPath();
     ctx.moveTo(ridge1.x, ridge1.y);
     ctx.lineTo(ridge2.x, ridge2.y);
@@ -277,22 +241,33 @@ function drawRoofSection(
     ctx.closePath();
     ctx.fill();
     
-    // Ridge line (highlight)
-    ctx.strokeStyle = ROOF_COLOR_DARK;
-    ctx.lineWidth = 2;
+    drawRoofTiles(ctx, ridge1, ridge2, bottomRight, bottomLeft, false);
+    
+    ctx.strokeStyle = ROOF_RIDGE;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(ridge1.x, ridge1.y);
     ctx.lineTo(ridge2.x, ridge2.y);
     ctx.stroke();
+    
+    const gradient = ctx.createLinearGradient(ridge1.x, ridge1.y, bottomLeft.x, bottomLeft.y);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(0.3, 'rgba(0, 0, 0, 0.15)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.25)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(ridge1.x, ridge1.y);
+    ctx.lineTo(ridge2.x, ridge2.y);
+    ctx.lineTo(bottomRight.x, bottomRight.y);
+    ctx.lineTo(bottomLeft.x, bottomLeft.y);
+    ctx.closePath();
+    ctx.fill();
   } else {
-    // Ridge runs vertically (top to bottom)
     const ridgeXWorld = center.x - ridgeOffset;
     ridge1 = worldToCanvas({ x: ridgeXWorld, y: bounds.min.y }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     ridge2 = worldToCanvas({ x: ridgeXWorld, y: bounds.max.y }, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height);
     
-    // Draw 4 triangular faces
-    // Left face (front, lighter)
-    ctx.fillStyle = ROOF_COLOR_LIGHT;
+    ctx.fillStyle = ROOF_TILE_LIGHT;
     ctx.beginPath();
     ctx.moveTo(topLeft.x, topLeft.y);
     ctx.lineTo(ridge1.x, ridge1.y);
@@ -301,8 +276,9 @@ function drawRoofSection(
     ctx.closePath();
     ctx.fill();
     
-    // Right face (side, medium)
-    ctx.fillStyle = ROOF_COLOR_DARK;
+    drawRoofTiles(ctx, topLeft, ridge1, ridge2, bottomLeft, true);
+    
+    ctx.fillStyle = ROOF_TILE_DARK;
     ctx.beginPath();
     ctx.moveTo(ridge1.x, ridge1.y);
     ctx.lineTo(topRight.x, topRight.y);
@@ -311,28 +287,70 @@ function drawRoofSection(
     ctx.closePath();
     ctx.fill();
     
-    // Ridge line (highlight)
-    ctx.strokeStyle = ROOF_COLOR_DARK;
-    ctx.lineWidth = 2;
+    drawRoofTiles(ctx, ridge1, topRight, bottomRight, ridge2, false);
+    
+    ctx.strokeStyle = ROOF_RIDGE;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(ridge1.x, ridge1.y);
     ctx.lineTo(ridge2.x, ridge2.y);
     ctx.stroke();
+    
+    const gradient = ctx.createLinearGradient(ridge1.x, ridge1.y, topRight.x, topRight.y);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(0.3, 'rgba(0, 0, 0, 0.15)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.25)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(ridge1.x, ridge1.y);
+    ctx.lineTo(topRight.x, topRight.y);
+    ctx.lineTo(bottomRight.x, bottomRight.y);
+    ctx.lineTo(ridge2.x, ridge2.y);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
-/**
- * Draw roof skin for a house shape
- * Automatically detects geometry and renders appropriate roof sections
- */
+function drawRoofTiles(
+  ctx: CanvasRenderingContext2D,
+  p1: Point,
+  p2: Point,
+  p3: Point,
+  p4: Point,
+  isLight: boolean
+) {
+  const tileSpacing = 8;
+  const tileColor = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.12)';
+  
+  ctx.strokeStyle = tileColor;
+  ctx.lineWidth = 1;
+  
+  const width = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+  const height = Math.sqrt(Math.pow(p4.x - p1.x, 2) + Math.pow(p4.y - p1.y, 2));
+  
+  const numLines = Math.floor(height / tileSpacing);
+  
+  for (let i = 1; i < numLines; i++) {
+    const t = i / numLines;
+    const startX = p1.x + (p4.x - p1.x) * t;
+    const startY = p1.y + (p4.y - p1.y) * t;
+    const endX = p2.x + (p3.x - p2.x) * t;
+    const endY = p2.y + (p3.y - p2.y) * t;
+    
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+  }
+}
+
 export function drawRoof(
   ctx: CanvasRenderingContext2D,
   shape: FloorplanShape,
   viewTransform: ViewTransform,
   canvasSize: { width: number; height: number },
-  opacity: number = 0.85
+  opacity: number = 0.9
 ) {
-  // Only draw roofs on house layer shapes
   if (shape.layer !== 'house') {
     return;
   }
@@ -342,15 +360,12 @@ export function drawRoof(
     return;
   }
   
-  // Save context state
   ctx.save();
   ctx.globalAlpha = opacity;
   
-  // Draw each roof section
   for (const section of sections) {
     drawRoofSection(ctx, section, viewTransform, canvasSize);
   }
   
-  // Restore context state
   ctx.restore();
 }
