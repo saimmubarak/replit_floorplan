@@ -94,6 +94,7 @@ export function drawDoorSkin(
   
   ctx.save();
   ctx.translate(pos.x, pos.y);
+  // Rotate to align with wall (x-axis along wall, y-axis perpendicular outward)
   ctx.rotate((door.rotation * Math.PI) / 180);
   
   // Draw quarter circle(s) representing outward-opening door(s)
@@ -101,7 +102,7 @@ export function drawDoorSkin(
   const brownStroke = 'rgba(101, 67, 33, 0.8)';
   
   if (door.type === 'single') {
-    // Single door: one quarter circle on the left side
+    // Single door: one quarter circle with radius equal to door width
     const radius = widthPx;
     
     ctx.fillStyle = brownColor;
@@ -109,29 +110,29 @@ export function drawDoorSkin(
     ctx.lineWidth = 1.5;
     
     ctx.beginPath();
-    // Quarter circle from left handle, opening outward (downward in local coords)
+    // Quarter circle: hinge at left end (-widthPx/2, 0), arc extends outward (positive y)
     ctx.arc(-widthPx / 2, 0, radius, 0, Math.PI / 2);
     ctx.lineTo(-widthPx / 2, 0);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     
-    // Draw door line at the hinge
+    // Draw door line along the wall
     ctx.strokeStyle = brownStroke;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(-widthPx / 2, -3);
-    ctx.lineTo(-widthPx / 2, 3);
+    ctx.moveTo(-widthPx / 2, 0);
+    ctx.lineTo(widthPx / 2, 0);
     ctx.stroke();
   } else {
-    // Double door: two quarter circles, one from each side
+    // Double door: two quarter circles, each with radius = half door width
     const radius = widthPx / 2;
     
     ctx.fillStyle = brownColor;
     ctx.strokeStyle = brownStroke;
     ctx.lineWidth = 1.5;
     
-    // Left door quarter circle
+    // Left door quarter circle (hinge at left end)
     ctx.beginPath();
     ctx.arc(-widthPx / 2, 0, radius, 0, Math.PI / 2);
     ctx.lineTo(-widthPx / 2, 0);
@@ -139,7 +140,7 @@ export function drawDoorSkin(
     ctx.fill();
     ctx.stroke();
     
-    // Right door quarter circle
+    // Right door quarter circle (hinge at right end)
     ctx.beginPath();
     ctx.arc(widthPx / 2, 0, radius, Math.PI / 2, Math.PI);
     ctx.lineTo(widthPx / 2, 0);
@@ -147,17 +148,12 @@ export function drawDoorSkin(
     ctx.fill();
     ctx.stroke();
     
-    // Draw door lines at hinges
+    // Draw door line across the opening
     ctx.strokeStyle = brownStroke;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(-widthPx / 2, -3);
-    ctx.lineTo(-widthPx / 2, 3);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.moveTo(widthPx / 2, -3);
-    ctx.lineTo(widthPx / 2, 3);
+    ctx.moveTo(-widthPx / 2, 0);
+    ctx.lineTo(widthPx / 2, 0);
     ctx.stroke();
   }
   
@@ -198,7 +194,9 @@ export function drawDoorLine(
   
   ctx.save();
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 4;
+  // Make the line thick enough to cover the wall (0.5ft wall + margins)
+  const wallThickness = 0.5;
+  ctx.lineWidth = (wallThickness * viewTransform.zoom) + 6;
   ctx.lineCap = 'butt';
   ctx.beginPath();
   ctx.moveTo(startCanvas.x, startCanvas.y);
@@ -227,6 +225,7 @@ export function drawDoorHandles(
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 2;
   
+  // Draw handles at the ends of the door on the wall line
   [-widthPx / 2, widthPx / 2].forEach((x) => {
     ctx.fillRect(x - handleSize / 2, -handleSize / 2, handleSize, handleSize);
     ctx.strokeRect(x - handleSize / 2, -handleSize / 2, handleSize, handleSize);

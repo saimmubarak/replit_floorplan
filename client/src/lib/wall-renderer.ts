@@ -29,69 +29,121 @@ export function drawWallSkin(
 ) {
   if (shape.layer !== 'wall' || shape.vertices.length < 2) return;
   
-  // Convert vertices to canvas coordinates
+  // Wall thickness in world units (feet) - walls should be visible
+  const wallThickness = 0.5; // 6 inches (0.5 feet) thick walls
+  const wallThicknessPx = wallThickness * viewTransform.zoom;
+  
+  ctx.save();
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'miter';
+  
+  // Draw the wall as a thick line with brick pattern
+  // First, draw a solid purple background slightly thicker than the line
+  ctx.strokeStyle = '#9333ea';
+  ctx.lineWidth = wallThicknessPx + 2;
+  
+  ctx.beginPath();
   const canvasVertices = shape.vertices.map(v =>
     worldToCanvas(v, viewTransform, DEFAULT_EDITING_DPI, canvasSize.width, canvasSize.height)
   );
   
-  ctx.save();
-  
-  // Create a clipping region to draw brick pattern only inside the shape
-  ctx.beginPath();
   canvasVertices.forEach((v, i) => {
     if (i === 0) ctx.moveTo(v.x, v.y);
     else ctx.lineTo(v.x, v.y);
   });
   
-  // Close the path for polygon shapes
   if (shape.type === 'polygon' || shape.type === 'rectangle') {
     ctx.closePath();
   }
   
-  // Fill with semi-transparent purple for wall background
-  ctx.fillStyle = 'rgba(147, 51, 234, 0.15)';
-  ctx.fill();
+  ctx.stroke();
   
-  // Clip to this region for brick pattern
-  ctx.clip();
+  // Now draw brick pattern on top
+  // For each segment, draw bricks along it
+  for (let i = 0; i < shape.vertices.length - 1; i++) {
+    const v1 = worldToCanvas(
+      shape.vertices[i],
+      viewTransform,
+      DEFAULT_EDITING_DPI,
+      canvasSize.width,
+      canvasSize.height
+    );
+    const v2 = worldToCanvas(
+      shape.vertices[i + 1],
+      viewTransform,
+      DEFAULT_EDITING_DPI,
+      canvasSize.width,
+      canvasSize.height
+    );
+    
+    drawBricksAlongSegment(ctx, v1, v2, wallThicknessPx, viewTransform.zoom);
+  }
   
-  // Draw brick pattern
-  const brickWidth = 20 * viewTransform.zoom;
-  const brickHeight = 10 * viewTransform.zoom;
-  const mortarWidth = 2;
+  // Close the polygon if needed
+  if (shape.type === 'polygon' || shape.type === 'rectangle') {
+    const v1 = worldToCanvas(
+      shape.vertices[shape.vertices.length - 1],
+      viewTransform,
+      DEFAULT_EDITING_DPI,
+      canvasSize.width,
+      canvasSize.height
+    );
+    const v2 = worldToCanvas(
+      shape.vertices[0],
+      viewTransform,
+      DEFAULT_EDITING_DPI,
+      canvasSize.width,
+      canvasSize.height
+    );
+    drawBricksAlongSegment(ctx, v1, v2, wallThicknessPx, viewTransform.zoom);
+  }
   
-  // Calculate bounds of the shape
-  const xs = canvasVertices.map(v => v.x);
-  const ys = canvasVertices.map(v => v.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  ctx.restore();
+}
+
+function drawBricksAlongSegment(
+  ctx: CanvasRenderingContext2D,
+  start: Point,
+  end: Point,
+  thickness: number,
+  zoom: number
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
   
-  // Draw brick pattern within bounds
-  ctx.strokeStyle = 'rgba(147, 51, 234, 0.4)';
-  ctx.lineWidth = mortarWidth;
+  if (length === 0) return;
   
-  // Draw horizontal mortar lines
-  for (let y = minY; y < maxY; y += brickHeight) {
+  const unitX = dx / length;
+  const unitY = dy / length;
+  const perpX = -unitY;
+  const perpY = unitX;
+  
+  const brickLength = 20 * zoom;
+  const brickHeight = thickness * 0.4;
+  
+  ctx.save();
+  
+  // Draw mortar lines (lighter purple)
+  ctx.strokeStyle = 'rgba(216, 180, 254, 0.8)';
+  ctx.lineWidth = 1.5;
+  
+  // Vertical mortar lines (between bricks)
+  for (let dist = brickLength; dist < length; dist += brickLength) {
+    const x = start.x + unitX * dist;
+    const y = start.y + unitY * dist;
+    
     ctx.beginPath();
-    ctx.moveTo(minX, y);
-    ctx.lineTo(maxX, y);
+    ctx.moveTo(x + perpX * thickness / 2, y + perpY * thickness / 2);
+    ctx.lineTo(x - perpX * thickness / 2, y - perpY * thickness / 2);
     ctx.stroke();
   }
   
-  // Draw vertical mortar lines (staggered for brick pattern)
-  let rowIndex = 0;
-  for (let y = minY; y < maxY; y += brickHeight) {
-    const offset = rowIndex % 2 === 0 ? 0 : brickWidth / 2;
-    for (let x = minX + offset; x < maxX; x += brickWidth) {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x, y + brickHeight);
-      ctx.stroke();
-    }
-    rowIndex++;
-  }
+  // Horizontal mortar line (middle of wall)
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
   
   ctx.restore();
 }
