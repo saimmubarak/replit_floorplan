@@ -58,6 +58,7 @@ export const Door = z.object({
   wallShapeId: z.string(),
   wallSegmentIndex: z.number(),
   rotation: z.number().default(0),
+  freeRotate: z.boolean().default(false),
 });
 export type Door = z.infer<typeof Door>;
 
@@ -69,7 +70,7 @@ export const WizardStep = z.enum([
   'plot-size',
   'house-shape',
   'add-doors',
-  'details',
+  'walls',
   'export-save',
 ]);
 export type WizardStep = z.infer<typeof WizardStep>;
@@ -217,6 +218,6 @@ export const STEP_COLORS = {
   'plot-size': '#1e3a8a',  // Dark blue for plot boundary
   'house-shape': '#9a3412', // Brick red for house
   'add-doors': '#4b5563',   // Gray for doors
-  'details': '#000000',     // Black for details
+  'walls': '#9333ea',       // Purple for walls
   'export-save': '#000000', // Black for export
 } as const;

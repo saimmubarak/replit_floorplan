@@ -2,21 +2,115 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { type FloorplanShape } from "@shared/schema";
+import { type FloorplanShape, type Door } from "@shared/schema";
 import { Lock, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PropertiesPanelProps {
   selectedShape: FloorplanShape | null;
+  selectedDoor: Door | null;
   onUpdateShape: (updates: Partial<FloorplanShape>) => void;
+  onUpdateDoor: (doorId: string, updates: Partial<Door>) => void;
 }
 
-export function PropertiesPanel({ selectedShape, onUpdateShape }: PropertiesPanelProps) {
+export function PropertiesPanel({ selectedShape, selectedDoor, onUpdateShape, onUpdateDoor }: PropertiesPanelProps) {
+  // Show door properties if a door is selected
+  if (selectedDoor) {
+    return (
+      <div className="flex flex-col gap-6 p-4 overflow-y-auto" data-testid="door-properties-panel">
+        {/* Door Info */}
+        <div>
+          <h3 className="text-base font-semibold mb-4">Door Info</h3>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm mb-1.5">Type</Label>
+              <div className="text-sm font-mono text-muted-foreground capitalize">
+                {selectedDoor.type} Door
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Door Properties */}
+        <div>
+          <h3 className="text-base font-semibold mb-4">Properties</h3>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="door-width" className="text-sm mb-1.5">Width</Label>
+              <div className="relative">
+                <Input
+                  id="door-width"
+                  type="number"
+                  value={selectedDoor.width.toFixed(1)}
+                  onChange={(e) => onUpdateDoor(selectedDoor.id, { width: parseFloat(e.target.value) || 3 })}
+                  className="font-mono pr-10"
+                  min="2"
+                  step="0.5"
+                  data-testid="property-door-width"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  ft
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Advanced */}
+        <div>
+          <h3 className="text-base font-semibold mb-4">Advanced</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="free-rotate" className="text-sm">
+                  Free Rotate
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Allow manual rotation of door
+                </p>
+              </div>
+              <Switch
+                id="free-rotate"
+                checked={selectedDoor.freeRotate}
+                onCheckedChange={(checked) => onUpdateDoor(selectedDoor.id, { freeRotate: checked })}
+                data-testid="property-free-rotate"
+              />
+            </div>
+
+            {selectedDoor.freeRotate && (
+              <div>
+                <Label htmlFor="door-rotation" className="text-sm mb-1.5">Rotation Angle</Label>
+                <div className="relative">
+                  <Input
+                    id="door-rotation"
+                    type="number"
+                    value={selectedDoor.rotation.toFixed(0)}
+                    onChange={(e) => onUpdateDoor(selectedDoor.id, { rotation: parseFloat(e.target.value) || 0 })}
+                    className="font-mono pr-10"
+                    step="15"
+                    data-testid="property-door-rotation"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    °
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!selectedShape) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Select a shape to view and edit its properties
+          Select a shape or door to view and edit its properties
         </p>
       </div>
     );

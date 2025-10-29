@@ -24,6 +24,7 @@ import {
   findSnapTarget,
 } from "@/lib/coordinate-math";
 import { drawRoof } from "@/lib/roof-renderer";
+import { drawWallSkin } from "@/lib/wall-renderer";
 import { improvedTransformVertices } from "@/lib/improved-transform";
 import {
   findWallSegmentAtPoint,
@@ -155,10 +156,13 @@ export function FloorplanCanvas({
       }
     });
 
-    // Draw all shapes with roofs
+    // Draw all shapes with roofs and walls
     shapes.forEach(shape => {
       // Draw roof skin first (underneath the shape outline)
       drawRoof(ctx, shape, viewTransform, canvasSize);
+      
+      // Draw wall skin for wall shapes
+      drawWallSkin(ctx, shape, viewTransform, canvasSize);
       
       // Then draw the shape outline (but we'll draw door lines over walls later)
       const isHovered = shape.id === hoveredShapeId && activeTool === 'select' && !selectedShapeId;
@@ -266,6 +270,7 @@ export function FloorplanCanvas({
           wallShapeId: wallResult.shape.id,
           wallSegmentIndex: wallResult.segmentIndex,
           rotation: wallResult.rotation,
+          freeRotate: false,
         };
         onPlaceDoor(newDoor);
       } else {
@@ -407,10 +412,17 @@ export function FloorplanCanvas({
       const wallShape = door ? shapes.find(s => s.id === door.wallShapeId) : null;
       if (door && wallShape) {
         if (doorDragState.handle === 'center') {
+          // Allow doors to snap to any wall within threshold, including adjacent walls and other houses
           const wallResult = findWallSegmentAtPoint(shapes, worldPoint, 2.0);
-          if (wallResult && wallResult.shape.id === door.wallShapeId) {
+          if (wallResult) {
             const updatedDoors = doors.map(d =>
-              d.id === door.id ? { ...d, position: wallResult.closestPoint } : d
+              d.id === door.id ? { 
+                ...d, 
+                position: wallResult.closestPoint,
+                wallShapeId: wallResult.shape.id,
+                wallSegmentIndex: wallResult.segmentIndex,
+                rotation: wallResult.rotation,
+              } : d
             );
             onDoorsChange(updatedDoors);
           }
@@ -550,8 +562,8 @@ export function FloorplanCanvas({
       const strokeColor = STEP_COLORS[currentStep];
       
       // Determine layer based on step
-      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
-      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : currentStep === 'walls' ? 'wall' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : currentStep === 'walls' ? 'Wall' : undefined;
       
       // Create new shape based on tool
       const newShape: FloorplanShape = {
@@ -584,8 +596,8 @@ export function FloorplanCanvas({
     if (isDrawing && activeTool === 'polygon' && currentPoints.length >= 2) {
       // Determine stroke color based on current wizard step
       const strokeColor = STEP_COLORS[currentStep];
-      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
-      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : currentStep === 'walls' ? 'wall' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : currentStep === 'walls' ? 'Wall' : undefined;
       
       const newShape: FloorplanShape = {
         id: crypto.randomUUID(),
@@ -649,8 +661,8 @@ export function FloorplanCanvas({
       e.preventDefault();
       
       const strokeColor = STEP_COLORS[currentStep];
-      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : 'default';
-      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : undefined;
+      const layer = currentStep === 'plot-size' ? 'plot' : currentStep === 'house-shape' ? 'house' : currentStep === 'walls' ? 'wall' : 'default';
+      const name = currentStep === 'plot-size' ? 'Plot Boundary' : currentStep === 'house-shape' ? 'House' : currentStep === 'walls' ? 'Wall' : undefined;
       
       const newShape: FloorplanShape = {
         id: crypto.randomUUID(),

@@ -3,6 +3,7 @@ import { WizardSteps } from "@/components/WizardSteps";
 import { PlotSizePanel } from "@/components/PlotSizePanel";
 import { HouseShapePanel } from "@/components/HouseShapePanel";
 import { AddDoorsPanel } from "@/components/AddDoorsPanel";
+import { WallsPanel } from "@/components/WallsPanel";
 import { FloorplanCanvas } from "@/components/FloorplanCanvas";
 import { PropertiesPanel } from "@/components/PropertiesPanel";
 import { Toolbar } from "@/components/Toolbar";
@@ -52,6 +53,7 @@ export default function Floorplan() {
   const [doorPlacementMode, setDoorPlacementMode] = useState<{ active: boolean; doorType: DoorType; width: number }>({ active: false, doorType: 'single', width: 3 });
 
   const selectedShape = shapes.find(s => s.id === selectedShapeId) || null;
+  const selectedDoor = doors.find(d => d.id === selectedDoorId) || null;
 
   // Initialize project on mount
   useEffect(() => {
@@ -96,7 +98,7 @@ export default function Floorplan() {
 
   // Wizard Navigation
   const handleNext = useCallback(() => {
-    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'details', 'export-save'];
+    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'walls', 'export-save'];
     const currentIndex = stepOrder.indexOf(currentStep);
     
     // Validate current step
@@ -118,7 +120,7 @@ export default function Floorplan() {
   }, [currentStep, completedSteps, shapes.length, toast]);
 
   const handlePrevious = useCallback(() => {
-    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'details', 'export-save'];
+    const stepOrder: WizardStep[] = ['plot-size', 'house-shape', 'add-doors', 'walls', 'export-save'];
     const currentIndex = stepOrder.indexOf(currentStep);
     
     if (currentIndex > 0) {
@@ -365,6 +367,7 @@ export default function Floorplan() {
           name: 'Floorplan Project',
           currentStep,
           shapes,
+          doors,
           viewTransform,
         });
         setProjectId(result.id);
@@ -379,6 +382,7 @@ export default function Floorplan() {
           updates: {
             currentStep,
             shapes,
+            doors,
             viewTransform,
           },
         });
@@ -394,7 +398,7 @@ export default function Floorplan() {
         variant: "destructive",
       });
     }
-  }, [projectId, currentStep, shapes, viewTransform, createProject, updateProject, toast]);
+  }, [projectId, currentStep, shapes, doors, viewTransform, createProject, updateProject, toast]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -470,8 +474,8 @@ export default function Floorplan() {
         return 'Tell us about house shape.';
       case 'add-doors':
         return 'Add doors to your house walls. Click a wall segment to place doors.';
-      case 'details':
-        return 'Add walls, paths, and other details to your floorplan';
+      case 'walls':
+        return 'Draw walls using the polygon tool. Walls will be drawn in purple.';
       case 'export-save':
         return 'Export your floorplan or save your progress';
     }
@@ -532,13 +536,11 @@ export default function Floorplan() {
               isPlacementMode={doorPlacementMode.active}
             />
           )}
-          {currentStep === 'details' && (
-            <div className="p-4">
-              <h3 className="text-base font-semibold mb-4">Add Details</h3>
-              <p className="text-sm text-muted-foreground">
-                Add walls, rooms, and architectural details to your floorplan
-              </p>
-            </div>
+          {currentStep === 'walls' && (
+            <WallsPanel
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+            />
           )}
           {currentStep === 'export-save' && (
             <div className="p-4">
@@ -590,7 +592,9 @@ export default function Floorplan() {
         <div className="w-80 border-l bg-muted/5 overflow-y-auto flex-shrink-0 shadow-sm">
           <PropertiesPanel
             selectedShape={selectedShape}
+            selectedDoor={selectedDoor}
             onUpdateShape={handleUpdateShape}
+            onUpdateDoor={handleUpdateDoor}
           />
         </div>
       </div>

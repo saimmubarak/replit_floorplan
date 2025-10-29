@@ -30,7 +30,8 @@ export function findWallSegmentAtPoint(
   let closestResult: { shape: FloorplanShape; segmentIndex: number; closestPoint: Point; distance: number; rotation: number } | null = null;
   
   for (const shape of shapes) {
-    if (shape.layer !== 'house') continue;
+    // Allow doors to be placed on both house walls and standalone wall shapes
+    if (shape.layer !== 'house' && shape.layer !== 'wall') continue;
     
     for (let i = 0; i < shape.vertices.length; i++) {
       const j = (i + 1) % shape.vertices.length;
@@ -95,29 +96,70 @@ export function drawDoorSkin(
   ctx.translate(pos.x, pos.y);
   ctx.rotate((door.rotation * Math.PI) / 180);
   
-  ctx.fillStyle = door.type === 'single' ? 'rgba(139, 69, 19, 0.6)' : 'rgba(101, 67, 33, 0.6)';
-  ctx.strokeStyle = '#654321';
-  ctx.lineWidth = 1;
+  // Draw quarter circle(s) representing outward-opening door(s)
+  const brownColor = 'rgba(139, 69, 19, 0.4)';
+  const brownStroke = 'rgba(101, 67, 33, 0.8)';
   
-  const height = widthPx * 0.15;
-  ctx.fillRect(-widthPx / 2, -height / 2, widthPx, height);
-  ctx.strokeRect(-widthPx / 2, -height / 2, widthPx, height);
-  
-  if (door.type === 'double') {
+  if (door.type === 'single') {
+    // Single door: one quarter circle on the left side
+    const radius = widthPx;
+    
+    ctx.fillStyle = brownColor;
+    ctx.strokeStyle = brownStroke;
+    ctx.lineWidth = 1.5;
+    
     ctx.beginPath();
-    ctx.moveTo(0, -height / 2);
-    ctx.lineTo(0, height / 2);
+    // Quarter circle from left handle, opening outward (downward in local coords)
+    ctx.arc(-widthPx / 2, 0, radius, 0, Math.PI / 2);
+    ctx.lineTo(-widthPx / 2, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw door line at the hinge
+    ctx.strokeStyle = brownStroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-widthPx / 2, -3);
+    ctx.lineTo(-widthPx / 2, 3);
+    ctx.stroke();
+  } else {
+    // Double door: two quarter circles, one from each side
+    const radius = widthPx / 2;
+    
+    ctx.fillStyle = brownColor;
+    ctx.strokeStyle = brownStroke;
+    ctx.lineWidth = 1.5;
+    
+    // Left door quarter circle
+    ctx.beginPath();
+    ctx.arc(-widthPx / 2, 0, radius, 0, Math.PI / 2);
+    ctx.lineTo(-widthPx / 2, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Right door quarter circle
+    ctx.beginPath();
+    ctx.arc(widthPx / 2, 0, radius, Math.PI / 2, Math.PI);
+    ctx.lineTo(widthPx / 2, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw door lines at hinges
+    ctx.strokeStyle = brownStroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-widthPx / 2, -3);
+    ctx.lineTo(-widthPx / 2, 3);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.moveTo(widthPx / 2, -3);
+    ctx.lineTo(widthPx / 2, 3);
     ctx.stroke();
   }
-  
-  const arcRadius = widthPx / 2;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.beginPath();
-  ctx.arc(door.type === 'single' ? -widthPx / 2 : 0, 0, arcRadius, -Math.PI / 2, 0);
-  ctx.stroke();
-  ctx.setLineDash([]);
   
   ctx.restore();
 }
